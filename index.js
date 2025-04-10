@@ -9,7 +9,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Your webhook secret (should be kept secure in production)
-const WEBHOOK_SECRET = 'your_webhook_secret_here';
+const WEBHOOK_SECRET = 'https://discord.com/api/webhooks/1359247078802456768/XJYyxEJHHE_J7tSSHAKrta6TqXKcpCUtu4VXWvmrUK3_xVfzrMrMzVCmj-DUCXcLU9h5';
 
 // Use JSON middleware
 app.use(bodyParser.json());

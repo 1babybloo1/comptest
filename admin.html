@@ -404,7 +404,7 @@
             }
         }
 
-        // **MODIFIED renderBracketEditor**
+        // **FIXED renderBracketEditor** (ensures dataset.type is set)
         function renderBracketEditor(bracketData, bracketType, skipClear = false) {
              console.log(`Rendering bracket editor for ${bracketType}. SkipClear=${skipClear}`);
              if (!bracketEditor) { console.error("renderBracketEditor: bracketEditor element not found!"); return; } // Safety check
@@ -492,11 +492,12 @@
                 addBracketMatch(target.dataset.roundIndex);
             } else if (target.classList.contains('delete-match-from-round-button')) {
                 console.log("Delete Match button click handled.");
+                // **Call the updated delete function**
                 deleteBracketMatch(target.dataset.roundIndex, target.dataset.matchIndex);
             }
         }
 
-        // **FIXED renderBracketMatchEditor** (from previous step)
+        // **FIXED renderBracketMatchEditor** (handles empty match object)
         function renderBracketMatchEditor(match, roundIndex, matchIndex) {
              console.log(`Rendering match editor for R${roundIndex+1} M${matchIndex+1}`);
              const matchDiv = document.createElement('div');
@@ -553,24 +554,22 @@
                      roundElement.remove();
                      console.log(`Removed round element index: ${roundIndex}`);
                      // Re-index subsequent rounds
-                     let currentIdx = 0; // Start re-indexing from 0
+                     let currentIdx = 0;
                      bracketEditor.querySelectorAll('.bracket-round').forEach((round) => {
                          const oldIndex = round.dataset.index;
-                         round.dataset.index = currentIdx; // Assign consecutive index
+                         round.dataset.index = currentIdx;
                          round.querySelector('h4').firstChild.textContent = `Round ${currentIdx + 1}: `;
                          const delBtn = round.querySelector('.delete-round-button');
                          if(delBtn) delBtn.dataset.index = currentIdx;
                          const addBtn = round.querySelector('.add-match-to-round-button');
                          if(addBtn) addBtn.dataset.roundIndex = currentIdx;
-
-                         // Update indices within matches as well
                          round.querySelectorAll('.bracket-match').forEach(match => {
                             match.dataset.roundIndex = currentIdx;
                              const delMatchBtn = match.querySelector('.delete-match-from-round-button');
                              if(delMatchBtn) delMatchBtn.dataset.roundIndex = currentIdx;
                          });
                          console.log(`Re-indexed round from ${oldIndex} to ${currentIdx}`);
-                         currentIdx++; // Increment for the next round
+                         currentIdx++;
                      });
                  } else {
                      console.warn(`Could not find round element to delete index: ${roundIndex}`);
@@ -625,40 +624,92 @@
             }
         }
 
+        // **UPDATED deleteBracketMatch** (Includes Firestore update)
+        async function deleteBracketMatch(roundIndex, matchIndex) {
+            const R_IDX = parseInt(roundIndex);
+            const M_IDX = parseInt(matchIndex);
+            console.log(`Attempting to delete match index ${M_IDX} from round index ${R_IDX}`);
+            if (!bracketEditor) { console.error("Delete Error: bracketEditor not found"); return; }
 
-        function deleteBracketMatch(roundIndex, matchIndex) {
-             console.log(`Attempting to delete match index ${matchIndex} from round index ${roundIndex}`);
-              if (!bracketEditor) return; // Safety check
-             if (confirm(`Are you sure you want to delete Match ${parseInt(matchIndex) + 1} from Round ${parseInt(roundIndex) + 1}?`)) {
-                 const matchElement = bracketEditor.querySelector(`.bracket-match[data-round-index="${roundIndex}"][data-match-index="${matchIndex}"]`);
-                 if (matchElement) {
-                     const container = matchElement.parentElement;
-                     matchElement.remove();
-                     console.log(`Removed match element R${roundIndex} M${matchIndex}`);
-                     // Re-index subsequent matches
-                     let currentMIdx = 0; // Start re-indexing from 0
-                     container.querySelectorAll('.bracket-match').forEach((match) => {
-                         const oldIndex = match.dataset.matchIndex;
-                         match.dataset.matchIndex = currentMIdx; // Assign consecutive index
-                         match.querySelector('h5').firstChild.textContent = `Match ${currentMIdx + 1} `;
-                         const delMatchBtn = match.querySelector('.delete-match-from-round-button');
-                          if(delMatchBtn) delMatchBtn.dataset.matchIndex = currentMIdx;
-                         console.log(`Re-indexed match from M${oldIndex} to M${currentMIdx} in R${roundIndex}`);
-                         currentMIdx++; // Increment for the next match
-                     });
-                      if (container.querySelectorAll('.bracket-match').length === 0 && !container.querySelector('p')) {
-                          const p = document.createElement('p');
-                          p.textContent = 'No matches yet.';
-                          container.appendChild(p);
-                          console.log("Added back 'No matches yet.' message.");
-                      }
-                 } else {
-                    console.warn(`Could not find match element to delete R${roundIndex} M${matchIndex}`);
-                 }
-             } else {
-                 console.log("Deletion cancelled.");
-             }
-         }
+            const bracketType = bracketEditor.dataset.type;
+            if (!bracketType) {
+                 console.error("Delete Error: Cannot determine bracket type.");
+                 showSaveStatus('Error: Cannot determine bracket type to delete match from.', true);
+                 return;
+            }
+
+            if (confirm(`Are you sure you want to delete Match ${M_IDX + 1} from Round ${R_IDX + 1}? This will remove it permanently.`)) {
+                const docRef = db.collection('brackets').doc(bracketType);
+                try {
+                    // Use a transaction to read, modify, and write
+                    await db.runTransaction(async (transaction) => {
+                        const docSnap = await transaction.get(docRef);
+                        if (!docSnap.exists()) {
+                            throw new Error("Bracket document does not exist!");
+                        }
+
+                        // Get a mutable copy of the rounds data
+                        const data = docSnap.data();
+                        // Deep copy to avoid modifying snapshot data directly
+                        const currentRounds = data.rounds ? JSON.parse(JSON.stringify(data.rounds)) : [];
+
+                        // Validate indices
+                        if (R_IDX < 0 || R_IDX >= currentRounds.length || !currentRounds[R_IDX].matches) {
+                             throw new Error(`Invalid round index (${R_IDX}) or round has no matches array.`);
+                        }
+                         if (M_IDX < 0 || M_IDX >= currentRounds[R_IDX].matches.length) {
+                             throw new Error(`Invalid match index (${M_IDX}) for round ${R_IDX}.`);
+                        }
+
+                        // Remove the match from the array copy
+                        console.log(`Removing match at R_IDX ${R_IDX}, M_IDX ${M_IDX}`);
+                        currentRounds[R_IDX].matches.splice(M_IDX, 1);
+
+                        // Update the document in the transaction with the modified array
+                         console.log("Updating Firestore with modified rounds:", currentRounds);
+                        transaction.update(docRef, { rounds: currentRounds });
+                    });
+
+                    // --- Firestore update successful, now update the UI ---
+                    console.log("Firestore transaction successful. Match removed from data.");
+                    showSaveStatus('Match deleted successfully from bracket!', false);
+
+                    const matchElement = bracketEditor.querySelector(`.bracket-match[data-round-index="${R_IDX}"][data-match-index="${M_IDX}"]`);
+                    if (matchElement) {
+                        const container = matchElement.parentElement;
+                        matchElement.remove();
+                        console.log(`Removed match element UI R${R_IDX} M${M_IDX}`);
+                        // Re-index subsequent matches *in the UI*
+                        let currentMIdx = 0;
+                        container.querySelectorAll('.bracket-match').forEach((matchUI) => {
+                            matchUI.dataset.matchIndex = currentMIdx;
+                            matchUI.querySelector('h5').firstChild.textContent = `Match ${currentMIdx + 1} `;
+                            const delMatchBtn = matchUI.querySelector('.delete-match-from-round-button');
+                            if(delMatchBtn) delMatchBtn.dataset.matchIndex = currentMIdx;
+                            currentMIdx++;
+                        });
+                        if (container.querySelectorAll('.bracket-match').length === 0 && !container.querySelector('p')) {
+                            const p = document.createElement('p');
+                            p.textContent = 'No matches yet.';
+                            container.appendChild(p);
+                            console.log("Added back 'No matches yet.' message to UI.");
+                        }
+                    } else {
+                       console.warn(`Could not find match element UI to remove R${R_IDX} M${M_IDX} after successful delete. UI might be out of sync.`);
+                       // Optionally reload the entire bracket editor UI if this happens frequently
+                       // loadBracketAdmin(bracketType);
+                    }
+                     // --- End UI Update ---
+
+                } catch (error) {
+                    console.error("Error deleting bracket match from Firestore:", error);
+                    showSaveStatus(`Error deleting match: ${error.message}`, true);
+                }
+            } else {
+                console.log("Deletion cancelled.");
+            }
+        }
+
 
         // --- Data Saving ---
 
@@ -893,7 +944,7 @@
             loadBracketAdmin(e.target.value)
         });
         saveBracketChangesButton.addEventListener('click', async () => {
-            const bracketType = bracketEditor?.dataset.type; // Use optional chaining
+             const bracketType = bracketEditor?.dataset.type; // Use optional chaining
             console.log(`Attempting to save bracket changes for: ${bracketType}`);
             if (!bracketType) {
                  console.error("Save Bracket Error: Cannot determine bracket type from dataset.");
@@ -974,12 +1025,9 @@
         // --- Initial Load Call ---
         console.log("Admin script initialized. Waiting for authentication state...");
 
-        // Add safety checks for elements potentially missing on load
         document.addEventListener('DOMContentLoaded', () => {
-            // Initial setup if needed, but main load relies on auth state
              console.log("DOM Content Loaded.");
-             // Add listeners for non-dynamic elements if necessary
-             // e.g., if login button wasn't found initially
+             // Attach listeners for non-dynamic elements here if needed
         });
 
         // --- END OF SCRIPT --- //

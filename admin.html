@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Poxel Competitive - Admin Panel</title>
-    <!-- Basic Styling - Adapt or link your main CSS if desired -->
     <style>
         :root {
             --dark: #121212;
@@ -34,6 +33,12 @@
         .bracket-round { margin-bottom: 10px; padding: 15px; border-left: 2px solid var(--orange); background-color: rgba(0,0,0,0.1); }
         .bracket-match { margin-bottom: 10px; padding: 10px; border: 1px solid #444; border-radius: 4px; background-color: var(--dark-accent); }
         .matches-in-round { padding-top: 10px; }
+         .loading-indicator { /* Simple loading style */
+             font-style: italic;
+             color: var(--text-secondary);
+             padding: 10px;
+             text-align: center;
+         }
     </style>
 </head>
 <body>
@@ -117,10 +122,10 @@
                  <h4>New Player Details</h4>
                  <label>Name:</label><input type="text" id="new-player-name">
                  <label>Avatar (Initials):</label><input type="text" id="new-player-avatar" maxlength="2">
-                 <label>Matches:</label><input type="number" id="new-player-matches" value="0" min="0"> <!-- Added min=0 -->
-                 <label>Wins:</label><input type="number" id="new-player-wins" value="0" min="0"> <!-- Added min=0 -->
-                 <label>Losses:</label><input type="number" id="new-player-losses" value="0" min="0"> <!-- Added min=0 -->
-                 <label>Points:</label><input type="number" id="new-player-points" value="0"> <!-- Allow negative points? -->
+                 <label>Matches:</label><input type="number" id="new-player-matches" value="0" min="0">
+                 <label>Wins:</label><input type="number" id="new-player-wins" value="0" min="0">
+                 <label>Losses:</label><input type="number" id="new-player-losses" value="0" min="0">
+                 <label>Points:</label><input type="number" id="new-player-points" value="0">
                  <button id="save-new-player">Save New Player</button>
                  <button type="button" onclick="document.getElementById('add-player-form').classList.add('hidden')">Cancel</button>
             </div>
@@ -135,6 +140,8 @@
                 <option value="pro">Pro Tourney</option>
                 <option value="novice">Novice Tourney</option>
             </select>
+             <!-- Added loading indicator container -->
+             <div id="bracket-loading-indicator" class="loading-indicator hidden">Loading...</div>
             <div id="bracket-editor">
                 <!-- Bracket editor UI will be loaded here -->
             </div>
@@ -193,6 +200,7 @@
 
         const bracketSelect = document.getElementById('bracket-select');
         const bracketEditor = document.getElementById('bracket-editor');
+         const bracketLoadingIndicator = document.getElementById('bracket-loading-indicator'); // Added reference
         const addRoundButton = document.getElementById('add-round-button');
         const saveBracketChangesButton = document.getElementById('save-bracket-changes');
 
@@ -256,35 +264,46 @@
              }
         }
 
-        async function loadBracketAdmin(bracketType = 'pro') {
-            if (!bracketEditor) { console.error("loadBracketAdmin: bracketEditor element not found"); return; }
-            bracketEditor.innerHTML = `Loading ${bracketType} bracket...`;
-             console.log(`--- Loading bracket: ${bracketType} ---`); // Add separator
+        // --- Matches Load --- (No changes needed based on last request)
+        async function loadMatchesAdmin() {
+            if (!matchesList) { console.error("loadMatchesAdmin: matchesList element not found"); return; }
+            matchesList.innerHTML = '<div class="loading-indicator">Loading matches...</div>'; // Use class
+            console.log("Loading matches from Firestore...");
             try {
-                 console.log(`[${bracketType}] Getting document reference...`);
-                const docRef = db.collection('brackets').doc(bracketType);
-
-                 console.log(`[${bracketType}] Attempting to get document snapshot...`);
-                const docSnap = await docRef.get();
-                 console.log(`[${bracketType}] Document snapshot received. Exists: ${docSnap.exists()}`);
-
-                if (docSnap.exists()) {
-                    const bracketData = docSnap.data();
-                     console.log(`[${bracketType}] Loaded bracket data:`, JSON.parse(JSON.stringify(bracketData))); // Log a copy
-                    renderBracketEditor(bracketData, bracketType);
-                } else {
-                     console.log(`[${bracketType}] No bracket data found. Rendering empty editor.`);
-                     renderBracketEditor({ rounds: [] }, bracketType, true); // Pass flag to attach listeners without clearing
-                     bracketEditor.innerHTML = `<p>No bracket data found for ${bracketType}. You can add rounds and matches below.</p>`; // Set message after potentially attaching listeners
+                const snapshot = await db.collection('matches').orderBy('date', 'desc').get();
+                console.log(`Found ${snapshot.size} matches.`);
+                matchesList.innerHTML = '';
+                if (snapshot.empty) {
+                    matchesList.innerHTML = '<p>No matches found.</p>';
+                    return;
                 }
-                 console.log(`--- Finished loading bracket: ${bracketType} successfully ---`);
+                snapshot.forEach(doc => {
+                    const match = { id: doc.id, ...doc.data() };
+                    const dateForInput = match.date?.toDate ? new Date(match.date.toDate().getTime() - match.date.toDate().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+                    const matchDiv = document.createElement('div');
+                    matchDiv.classList.add('match-editor');
+                    matchDiv.dataset.id = match.id;
+                     matchDiv.innerHTML = `
+                         <h4>Match ID: ${match.id}</h4>
+                         <label>Date:</label><input type="datetime-local" value="${dateForInput}" data-field="date">
+                         <label>Type:</label><input type="text" value="${match.type || ''}" data-field="type">
+                         <label>Team 1:</label><input type="text" value="${match.team1?.name || ''}" data-field="team1.name">
+                         <label>Team 1 Logo:</label><input type="text" value="${match.team1?.logo || ''}" data-field="team1.logo" maxlength="2">
+                         <label>Team 2:</label><input type="text" value="${match.team2?.name || ''}" data-field="team2.name">
+                         <label>Team 2 Logo:</label><input type="text" value="${match.team2?.logo || ''}" data-field="team2.logo" maxlength="2">
+                         <label>Venue:</label><input type="text" value="${match.venue || ''}" data-field="venue">
+                         <label>Stream:</label><input type="text" value="${match.streamLink || ''}" data-field="streamLink">
+                         <button class="delete-match-button" data-id="${match.id}">Delete Match</button>
+                     `;
+                    matchesList.appendChild(matchDiv);
+                });
+                 attachMatchDeleteListeners();
+
             } catch (error) {
-                console.error(`--- ERROR loading ${bracketType} bracket: ---`, error); // Add separator
-                 bracketEditor.innerHTML = `<p style="color:red;">Error loading ${bracketType} bracket. Check console.</p>`; // Update message
-                 renderBracketEditor({ rounds: [] }, bracketType, true); // Attach listeners even on error
+                console.error("Error loading matches:", error);
+                matchesList.innerHTML = '<p style="color:red;">Error loading matches.</p>';
             }
         }
-
         function attachMatchDeleteListeners() {
              document.querySelectorAll('#matches-list .delete-match-button').forEach(button => {
                  button.replaceWith(button.cloneNode(true));
@@ -308,9 +327,10 @@
              });
         }
 
+        // --- Leaderboard Load --- (No changes needed based on last request)
          async function loadLeaderboardAdmin() {
              if (!leaderboardBodyAdmin) { console.error("loadLeaderboardAdmin: leaderboardBodyAdmin element not found"); return; }
-            leaderboardBodyAdmin.innerHTML = '<tr><td colspan="8">Loading leaderboard...</td></tr>';
+            leaderboardBodyAdmin.innerHTML = '<tr><td colspan="8" class="loading-indicator">Loading leaderboard...</td></tr>'; // Use class
              console.log("Loading leaderboard from Firestore...");
              try {
                  const snapshot = await db.collection('leaderboard').orderBy('points', 'desc').get();
@@ -329,37 +349,32 @@
                           <td>${rank++}</td>
                           <td><input type="text" value="${player.name || ''}" data-field="name"></td>
                           <td><input type="text" value="${player.avatar || ''}" data-field="avatar" maxlength="2"></td>
-                          <td><input type="number" value="${player.matches || 0}" data-field="matches" min="0"></td> <!-- Added min -->
-                          <td><input type="number" value="${player.wins || 0}" data-field="wins" min="0"></td> <!-- Added min -->
-                          <td><input type="number" value="${player.losses || 0}" data-field="losses" min="0"></td> <!-- Added min -->
+                          <td><input type="number" value="${player.matches || 0}" data-field="matches" min="0"></td>
+                          <td><input type="number" value="${player.wins || 0}" data-field="wins" min="0"></td>
+                          <td><input type="number" value="${player.losses || 0}" data-field="losses" min="0"></td>
                           <td><input type="number" value="${player.points || 0}" data-field="points"></td>
                            <td><button class="delete-player-button" data-id="${player.id}">Delete</button></td>
                       `;
                      leaderboardBodyAdmin.appendChild(row);
                  });
-                 attachPlayerDeleteListeners(); // Make sure listeners are attached after rendering
+                 attachPlayerDeleteListeners();
 
              } catch (error) {
                  console.error("Error loading leaderboard:", error);
                  leaderboardBodyAdmin.innerHTML = '<tr><td colspan="8" style="color:red;">Error loading leaderboard.</td></tr>';
              }
          }
-
          function attachPlayerDeleteListeners() {
              console.log("Attaching player delete listeners...");
              const buttons = document.querySelectorAll('#leaderboard-body-admin .delete-player-button');
               console.log(`Found ${buttons.length} delete player buttons.`);
              buttons.forEach(button => {
-                 // More robust listener removal/re-attachment
                  const newButton = button.cloneNode(true);
                  button.parentNode.replaceChild(newButton, button);
 
                  newButton.addEventListener('click', async (e) => {
                      const id = e.target.dataset.id;
-                     if (!id) {
-                          console.error("Delete Error: No ID found on button dataset.");
-                          return;
-                     }
+                     if (!id) { console.error("Delete Error: No ID found on button dataset."); return; }
                      const playerName = e.target.closest('tr')?.querySelector('input[data-field="name"]')?.value || `ID: ${id}`;
                      console.log(`Attempting to delete player: ${playerName} (ID: ${id})`);
                      if (confirm(`Are you sure you want to delete player ${playerName}? This action is permanent.`)) {
@@ -367,7 +382,7 @@
                              await db.collection('leaderboard').doc(id).delete();
                               console.log(`Player ${id} deleted from Firestore.`);
                              showSaveStatus('Player deleted successfully!', false);
-                             loadLeaderboardAdmin(); // Reload the list from Firestore
+                             loadLeaderboardAdmin();
                          } catch (error) {
                              console.error(`Error deleting player ${id} from Firestore:`, error);
                              showSaveStatus(`Error deleting player: ${error.message}`, true);
@@ -377,58 +392,69 @@
              });
          }
 
+        // --- Bracket Load / Render --- (**MODIFIED**)
         async function loadBracketAdmin(bracketType = 'pro') {
-            if (!bracketEditor) { console.error("loadBracketAdmin: bracketEditor element not found"); return; }
-            bracketEditor.innerHTML = `Loading ${bracketType} bracket...`;
-             console.log(`Loading bracket: ${bracketType}`);
+            if (!bracketEditor || !bracketLoadingIndicator) {
+                console.error("loadBracketAdmin: bracketEditor or bracketLoadingIndicator element not found");
+                return;
+            }
+            // Show loading indicator *without* clearing main editor yet
+            bracketLoadingIndicator.classList.remove('hidden');
+            bracketLoadingIndicator.textContent = `Loading ${bracketType} bracket...`;
+            console.log(`--- Loading bracket: ${bracketType} ---`);
+
             try {
+                console.log(`[${bracketType}] Getting document reference...`);
                 const docRef = db.collection('brackets').doc(bracketType);
+
+                console.log(`[${bracketType}] Attempting to get document snapshot...`);
                 const docSnap = await docRef.get();
+                console.log(`[${bracketType}] Document snapshot received. Exists: ${docSnap.exists()}`);
 
                 if (docSnap.exists()) {
                     const bracketData = docSnap.data();
-                     console.log(`Loaded bracket data for ${bracketType}:`, bracketData);
+                    console.log(`[${bracketType}] Loaded bracket data:`, JSON.parse(JSON.stringify(bracketData)));
+                    // Pass data to render function
                     renderBracketEditor(bracketData, bracketType);
                 } else {
-                     console.log(`No bracket data found for ${bracketType}. Rendering empty editor.`);
-                     renderBracketEditor({ rounds: [] }, bracketType, true); // Pass flag to attach listeners without clearing
-                     bracketEditor.innerHTML = `<p>No bracket data found for ${bracketType}. You can add rounds and matches below.</p>`; // Set message after potentially attaching listeners
+                    console.log(`[${bracketType}] No bracket data found. Rendering empty editor.`);
+                    // Pass empty data to render function
+                    renderBracketEditor({ rounds: [] }, bracketType);
                 }
+                console.log(`--- Finished loading bracket: ${bracketType} successfully ---`);
             } catch (error) {
-                console.error(`Error loading ${bracketType} bracket:`, error);
-                 bracketEditor.innerHTML = `<p style="color:red;">Error loading ${bracketType} bracket.</p>`;
-                 renderBracketEditor({ rounds: [] }, bracketType, true); // Attach listeners even on error
+                console.error(`--- ERROR loading ${bracketType} bracket: ---`, error);
+                // Display error IN the main editor area, clearing previous content
+                bracketEditor.innerHTML = `<p style="color:red;">Error loading ${bracketType} bracket. Check console.</p>`;
+                // Still ensure dataset type is set for potential saving later
+                bracketEditor.dataset.type = bracketType;
+                attachBracketEditorListeners(); // Attach listeners so 'Add Round' might still work
+            } finally {
+                 // Hide loading indicator regardless of success or failure
+                 bracketLoadingIndicator.classList.add('hidden');
             }
         }
 
-        // **FIXED renderBracketEditor** (ensures dataset.type is set)
-        function renderBracketEditor(bracketData, bracketType, skipClear = false) {
-             console.log(`Rendering bracket editor for ${bracketType}. SkipClear=${skipClear}`);
-             if (!bracketEditor) { console.error("renderBracketEditor: bracketEditor element not found!"); return; } // Safety check
+        // **MODIFIED renderBracketEditor** (Clears content ONLY when rendering new data)
+        function renderBracketEditor(bracketData, bracketType) {
+             console.log(`Rendering bracket editor for ${bracketType}`);
+             if (!bracketEditor) { console.error("renderBracketEditor: bracketEditor element not found!"); return; }
 
-             // **Set the dataset type REGARDLESS of skipClear**
+             // Set the dataset type
              bracketEditor.dataset.type = bracketType;
-             console.log(`Set bracketEditor.dataset.type to: ${bracketEditor.dataset.type}`); // Verify it's set
+             console.log(`Set bracketEditor.dataset.type to: ${bracketEditor.dataset.type}`);
 
-             // Now handle clearing based on skipClear
-             if (!skipClear) {
-                 bracketEditor.innerHTML = ''; // Clear previous content if not skipping
-             }
+             // Clear existing content *before* rendering new content
+             bracketEditor.innerHTML = '';
 
              if (!bracketData.rounds || bracketData.rounds.length === 0) {
-                 // Only add "No rounds" message if we didn't just display an error / aren't skipping clear
-                 if (!skipClear) {
-                     bracketEditor.innerHTML += '<p>No rounds in this bracket yet.</p>';
-                 }
-                 console.log("No rounds found or rendering after error.");
-                 attachBracketEditorListeners(); // Ensure listeners attached
-                 return; // Stop rendering rounds if none exist
-             }
-
-            // Only render rounds if not skipping clear (i.e., successful load)
-             if (!skipClear) {
+                 console.log("No rounds found in data. Displaying 'No rounds' message.");
+                 bracketEditor.innerHTML = '<p>No rounds in this bracket yet.</p>'; // Display message directly
+             } else {
+                 // Render rounds if data exists
+                 console.log(`Rendering ${bracketData.rounds.length} rounds...`);
                  bracketData.rounds.forEach((round, roundIndex) => {
-                     console.log(`Rendering round ${roundIndex + 1}:`, round.name);
+                     // ... (rest of round rendering logic remains the same) ...
                      const roundDiv = document.createElement('div');
                      roundDiv.classList.add('bracket-round');
                      roundDiv.dataset.index = roundIndex;
@@ -445,26 +471,25 @@
                      if (round.matches && round.matches.length > 0) {
                          round.matches.forEach((match, matchIndex) => {
                              const matchDiv = renderBracketMatchEditor(match, roundIndex, matchIndex);
-                             if (matchDiv && matchesContainer) { // Check elements exist
+                             if (matchDiv && matchesContainer) {
                                  matchesContainer.appendChild(matchDiv);
                              } else {
                                  console.error("Error: Couldn't append matchDiv, container or div is null", matchDiv, matchesContainer);
                              }
                          });
                      } else {
-                          // Ensure the "No matches yet" paragraph exists if needed
                           if (matchesContainer && !matchesContainer.querySelector('p')) {
                               const p = document.createElement('p');
                               p.textContent = 'No matches yet.';
                               matchesContainer.appendChild(p);
                           }
                      }
-
                      bracketEditor.appendChild(roundDiv);
                  });
              }
 
-             console.log("Attaching bracket editor listeners after rendering rounds.");
+             // Attach event listeners AFTER rendering is complete
+             console.log("Attaching bracket editor listeners after rendering.");
              attachBracketEditorListeners();
          }
 
@@ -489,19 +514,18 @@
                 addBracketMatch(target.dataset.roundIndex);
             } else if (target.classList.contains('delete-match-from-round-button')) {
                 console.log("Delete Match button click handled.");
-                // **Call the updated delete function**
                 deleteBracketMatch(target.dataset.roundIndex, target.dataset.matchIndex);
             }
         }
 
-        // **FIXED renderBracketMatchEditor** (handles empty match object)
+        // Render Bracket Match Editor (No changes needed from previous version)
         function renderBracketMatchEditor(match, roundIndex, matchIndex) {
+             // ... (keep the version with optional chaining from previous fix) ...
              console.log(`Rendering match editor for R${roundIndex+1} M${matchIndex+1}`);
              const matchDiv = document.createElement('div');
              matchDiv.classList.add('bracket-match');
              matchDiv.dataset.roundIndex = roundIndex;
              matchDiv.dataset.matchIndex = matchIndex;
-             // Use optional chaining (?.) and nullish coalescing (??) for safety
              matchDiv.innerHTML = `
                  <h5>Match ${matchIndex + 1}
                  <button class="delete-match-from-round-button" data-round-index="${roundIndex}" data-match-index="${matchIndex}">Delete Match</button>
@@ -543,14 +567,15 @@
          });
 
         function deleteBracketRound(roundIndex) {
-             console.log(`Attempting to delete round index: ${roundIndex}`);
-             if (!bracketEditor) return; // Safety check
-             if (confirm(`Are you sure you want to delete Round ${parseInt(roundIndex) + 1}?`)) {
+            // This function only modifies the UI. Saving is handled by "Save Bracket Changes".
+             console.log(`Attempting to delete round index: ${roundIndex} from UI`);
+             if (!bracketEditor) return;
+             if (confirm(`Are you sure you want to delete Round ${parseInt(roundIndex) + 1} from the editor? Remember to save changes.`)) {
                  const roundElement = bracketEditor.querySelector(`.bracket-round[data-index="${roundIndex}"]`);
                  if (roundElement) {
                      roundElement.remove();
-                     console.log(`Removed round element index: ${roundIndex}`);
-                     // Re-index subsequent rounds
+                     console.log(`Removed round element index: ${roundIndex} from UI`);
+                     // Re-index subsequent rounds in the UI
                      let currentIdx = 0;
                      bracketEditor.querySelectorAll('.bracket-round').forEach((round) => {
                          const oldIndex = round.dataset.index;
@@ -565,11 +590,16 @@
                              const delMatchBtn = match.querySelector('.delete-match-from-round-button');
                              if(delMatchBtn) delMatchBtn.dataset.roundIndex = currentIdx;
                          });
-                         console.log(`Re-indexed round from ${oldIndex} to ${currentIdx}`);
+                         console.log(`Re-indexed round UI from ${oldIndex} to ${currentIdx}`);
                          currentIdx++;
                      });
+                     if (bracketEditor.querySelectorAll('.bracket-round').length === 0 && !bracketEditor.querySelector('p')) {
+                         const p = document.createElement('p');
+                         p.textContent = 'No rounds in this bracket yet.';
+                         bracketEditor.appendChild(p);
+                     }
                  } else {
-                     console.warn(`Could not find round element to delete index: ${roundIndex}`);
+                     console.warn(`Could not find round element UI to delete index: ${roundIndex}`);
                  }
              } else {
                  console.log("Deletion cancelled.");
@@ -577,26 +607,17 @@
          }
 
         function addBracketMatch(roundIndex) {
+             // This function only modifies the UI. Saving is handled by "Save Bracket Changes".
             console.log('--- addBracketMatch called --- roundIndex:', roundIndex);
-             if (!bracketEditor) return; // Safety check
+             if (!bracketEditor) return;
 
             const roundElement = bracketEditor.querySelector(`.bracket-round[data-index="${roundIndex}"]`);
             console.log('Found roundElement:', roundElement);
-
-            if (!roundElement) {
-                console.error('addBracketMatch ERROR: Could not find round element for index:', roundIndex);
-                alert('Error: Could not find the round container. Please refresh and try again.');
-                return;
-            }
+            if (!roundElement) { console.error('Could not find round container.'); alert('Error: Could not find round.'); return; }
 
             const matchesContainer = roundElement.querySelector('.matches-in-round');
             console.log('Found matchesContainer:', matchesContainer);
-
-            if (!matchesContainer) {
-                console.error('addBracketMatch ERROR: Could not find matchesContainer within round element:', roundElement);
-                 alert('Error: Could not find the match container within the round. Please refresh and try again.');
-                return;
-            }
+            if (!matchesContainer) { console.error('Could not find matches container.'); alert('Error: Could not find matches area.'); return; }
 
             const newMatchIndex = matchesContainer.querySelectorAll('.bracket-match').length;
             console.log('Calculated newMatchIndex:', newMatchIndex);
@@ -604,17 +625,14 @@
             try {
                 const matchDiv = renderBracketMatchEditor({}, roundIndex, newMatchIndex);
                 console.log('Rendered matchDiv:', matchDiv);
-
                 const noMatchesMsg = matchesContainer.querySelector('p');
                 if (noMatchesMsg && noMatchesMsg.textContent.includes('No matches')) {
                     console.log('Removing "No matches" message');
                     noMatchesMsg.remove();
                 }
-
                 console.log('Appending matchDiv to matchesContainer');
                 matchesContainer.appendChild(matchDiv);
                 console.log('--- addBracketMatch finished successfully ---');
-
             } catch (error) {
                  console.error("Error during addBracketMatch execution (render or append):", error);
                  alert('An error occurred while adding the match editor.');
@@ -635,8 +653,9 @@
                  return;
             }
 
-            if (confirm(`Are you sure you want to delete Match ${M_IDX + 1} from Round ${R_IDX + 1}? This will remove it permanently.`)) {
+            if (confirm(`Are you sure you want to delete Match ${M_IDX + 1} from Round ${R_IDX + 1}? This will remove it permanently from the database.`)) {
                 const docRef = db.collection('brackets').doc(bracketType);
+                showSaveStatus("Deleting match from database...", false); // Indicate activity
                 try {
                     // Use a transaction to read, modify, and write
                     await db.runTransaction(async (transaction) => {
@@ -644,13 +663,9 @@
                         if (!docSnap.exists()) {
                             throw new Error("Bracket document does not exist!");
                         }
-
-                        // Get a mutable copy of the rounds data
                         const data = docSnap.data();
-                        // Deep copy to avoid modifying snapshot data directly
                         const currentRounds = data.rounds ? JSON.parse(JSON.stringify(data.rounds)) : [];
 
-                        // Validate indices
                         if (R_IDX < 0 || R_IDX >= currentRounds.length || !currentRounds[R_IDX].matches) {
                              throw new Error(`Invalid round index (${R_IDX}) or round has no matches array.`);
                         }
@@ -658,12 +673,10 @@
                              throw new Error(`Invalid match index (${M_IDX}) for round ${R_IDX}.`);
                         }
 
-                        // Remove the match from the array copy
                         console.log(`Removing match at R_IDX ${R_IDX}, M_IDX ${M_IDX}`);
-                        currentRounds[R_IDX].matches.splice(M_IDX, 1);
+                        currentRounds[R_IDX].matches.splice(M_IDX, 1); // Remove the specific match
 
-                        // Update the document in the transaction with the modified array
-                         console.log("Updating Firestore with modified rounds:", currentRounds);
+                        console.log("Updating Firestore with modified rounds:", currentRounds);
                         transaction.update(docRef, { rounds: currentRounds });
                     });
 
@@ -671,18 +684,20 @@
                     console.log("Firestore transaction successful. Match removed from data.");
                     showSaveStatus('Match deleted successfully from bracket!', false);
 
+                    // Remove from UI and re-index UI
                     const matchElement = bracketEditor.querySelector(`.bracket-match[data-round-index="${R_IDX}"][data-match-index="${M_IDX}"]`);
                     if (matchElement) {
                         const container = matchElement.parentElement;
                         matchElement.remove();
                         console.log(`Removed match element UI R${R_IDX} M${M_IDX}`);
-                        // Re-index subsequent matches *in the UI*
                         let currentMIdx = 0;
                         container.querySelectorAll('.bracket-match').forEach((matchUI) => {
                             matchUI.dataset.matchIndex = currentMIdx;
                             matchUI.querySelector('h5').firstChild.textContent = `Match ${currentMIdx + 1} `;
                             const delMatchBtn = matchUI.querySelector('.delete-match-from-round-button');
                             if(delMatchBtn) delMatchBtn.dataset.matchIndex = currentMIdx;
+                             const currentRoundIndex = matchUI.dataset.roundIndex; // Keep original round index
+                             if(delMatchBtn) delMatchBtn.dataset.roundIndex = currentRoundIndex;
                             currentMIdx++;
                         });
                         if (container.querySelectorAll('.bracket-match').length === 0 && !container.querySelector('p')) {
@@ -693,8 +708,7 @@
                         }
                     } else {
                        console.warn(`Could not find match element UI to remove R${R_IDX} M${M_IDX} after successful delete. UI might be out of sync.`);
-                       // Optionally reload the entire bracket editor UI if this happens frequently
-                       // loadBracketAdmin(bracketType);
+                       loadBracketAdmin(bracketType); // Force reload UI if inconsistency detected
                     }
                      // --- End UI Update ---
 
@@ -725,130 +739,61 @@
               if (addMatchForm) addMatchForm.classList.toggle('hidden');
         });
         saveNewMatchButton.addEventListener('click', async () => {
+            // ... (save new match logic remains the same) ...
              console.log("Attempting to save NEW match...");
              const dateValue = document.getElementById('new-match-date').value;
              let matchDateTimestamp = null;
              if (dateValue) {
-                 try {
-                     matchDateTimestamp = firebase.firestore.Timestamp.fromDate(new Date(dateValue));
-                 } catch (e) {
-                     console.error("Invalid date entered for new match:", e);
-                     showSaveStatus('Error: Invalid Date format entered.', true);
-                     return;
-                 }
+                 try { matchDateTimestamp = firebase.firestore.Timestamp.fromDate(new Date(dateValue)); }
+                 catch (e) { console.error("Invalid date:", e); showSaveStatus('Error: Invalid Date format.', true); return; }
              }
-
              const newMatchData = {
-                 date: matchDateTimestamp,
-                 type: document.getElementById('new-match-type').value.trim(),
-                 team1: {
-                     name: document.getElementById('new-match-team1-name').value.trim(),
-                     logo: document.getElementById('new-match-team1-logo').value.trim().toUpperCase()
-                 },
-                 team2: {
-                     name: document.getElementById('new-match-team2-name').value.trim(),
-                     logo: document.getElementById('new-match-team2-logo').value.trim().toUpperCase()
-                 },
-                 venue: document.getElementById('new-match-venue').value.trim(),
-                 streamLink: document.getElementById('new-match-stream').value.trim()
+                 date: matchDateTimestamp, type: document.getElementById('new-match-type').value.trim(),
+                 team1: { name: document.getElementById('new-match-team1-name').value.trim(), logo: document.getElementById('new-match-team1-logo').value.trim().toUpperCase() },
+                 team2: { name: document.getElementById('new-match-team2-name').value.trim(), logo: document.getElementById('new-match-team2-logo').value.trim().toUpperCase() },
+                 venue: document.getElementById('new-match-venue').value.trim(), streamLink: document.getElementById('new-match-stream').value.trim()
              };
-
              if (!newMatchData.date || !newMatchData.team1.name || !newMatchData.team2.name || !newMatchData.type) {
-                  console.warn("Validation failed for new match:", newMatchData);
-                 showSaveStatus('Error: Date, Type, Team 1 Name, and Team 2 Name are required.', true);
-                 return;
+                 showSaveStatus('Error: Date, Type, Team 1 & 2 Names required.', true); return;
              }
-             console.log("New match data validated:", newMatchData);
-
+             console.log("New match validated:", newMatchData);
              try {
                  const docRef = await db.collection('matches').add(newMatchData);
-                 console.log("New match added successfully with ID:", docRef.id);
-                 showSaveStatus('New match added successfully!', false);
+                 console.log("New match added ID:", docRef.id); showSaveStatus('New match added!', false);
                  addMatchForm.classList.add('hidden');
-                addMatchForm.querySelectorAll('input').forEach(input => input.value = (input.id === 'new-match-stream' ? 'https://www.twitch.tv/poxelcompetitive/' : ''));
+                 addMatchForm.querySelectorAll('input').forEach(input => input.value = (input.id === 'new-match-stream' ? 'https://www.twitch.tv/poxelcompetitive/' : ''));
                  loadMatchesAdmin();
-             } catch (error) {
-                 console.error("Error adding new match to Firestore:", error);
-                 showSaveStatus(`Error adding match: ${error.message}`, true);
-             }
+             } catch (error) { console.error("Error adding match:", error); showSaveStatus(`Error: ${error.message}`, true); }
         });
 
          // Save ALL Match Changes (Updates Existing)
         saveMatchesChangesButton.addEventListener('click', async () => {
+            // ... (save all match changes logic remains the same) ...
              console.log("Attempting to save ALL match changes...");
-             const updates = [];
-             let overallError = false;
-
+             const updates = []; let overallError = false;
              document.querySelectorAll('#matches-list .match-editor').forEach(editor => {
-                 const id = editor.dataset.id;
-                 if (!id) return;
-
-                 const matchData = { team1: {}, team2: {} };
-                 let hasDateError = false;
+                 const id = editor.dataset.id; if (!id) return;
+                 const matchData = { team1: {}, team2: {} }; let hasDateError = false;
                  let dateValue = editor.querySelector('input[data-field="date"]')?.value;
-
                  if (dateValue) {
-                     try {
-                         matchData.date = firebase.firestore.Timestamp.fromDate(new Date(dateValue));
-                     } catch (e) {
-                         console.error(`Invalid date for match ${id}: ${dateValue}`, e);
-                         showSaveStatus(`Error: Invalid date format for Match ID ${id}.`, true);
-                         hasDateError = true;
-                         overallError = true;
-                     }
-                 } else {
-                      console.warn(`Date missing for match ${id}.`);
-                      showSaveStatus(`Warning: Date missing for Match ID ${id}. It might not display correctly.`, true);
-                      matchData.date = null;
-                      hasDateError = true;
-                       overallError = true;
-                 }
-
+                     try { matchData.date = firebase.firestore.Timestamp.fromDate(new Date(dateValue)); }
+                     catch (e) { console.error(`Invalid date MID ${id}: ${dateValue}`, e); showSaveStatus(`Error: Invalid date MID ${id}.`, true); hasDateError = true; overallError = true; }
+                 } else { console.warn(`Date missing MID ${id}.`); showSaveStatus(`Warning: Date missing MID ${id}.`, true); matchData.date = null; hasDateError = true; overallError = true; }
                   if (!hasDateError) {
                      editor.querySelectorAll('input:not([data-field="date"])').forEach(input => {
-                         const fieldPath = input.dataset.field;
-                         let value = input.value.trim();
-                         if (fieldPath?.includes('.')) {
-                             const parts = fieldPath.split('.');
-                             if (parts.length === 2) {
-                                 if (!matchData[parts[0]]) matchData[parts[0]] = {};
-                                 matchData[parts[0]][parts[1]] = value;
-                             }
-                         } else if (fieldPath) {
-                             matchData[fieldPath] = value;
-                         }
+                         const fieldPath = input.dataset.field; let value = input.value.trim();
+                         if (fieldPath?.includes('.')) { const parts = fieldPath.split('.'); if (parts.length === 2) { if (!matchData[parts[0]]) matchData[parts[0]] = {}; matchData[parts[0]][parts[1]] = value; } }
+                         else if (fieldPath) { matchData[fieldPath] = value; }
                      });
-                      console.log(`Queueing update for match ${id}:`, matchData);
-                      updates.push({ id: id, data: matchData });
+                      console.log(`Queueing update MID ${id}:`, matchData); updates.push({ id: id, data: matchData });
                   }
              });
-
-             if (updates.length === 0 && !overallError) {
-                 console.log("No valid match changes detected to save.");
-                 showSaveStatus('No changes detected in existing matches.', false);
-                 return;
-             }
-              if (updates.length === 0 && overallError) {
-                 console.log("No valid match changes to save due to errors.");
-                 return;
-             }
-
-             console.log(`Preparing batch update for ${updates.length} matches.`);
-             const batch = db.batch();
-             updates.forEach(update => {
-                 const docRef = db.collection('matches').doc(update.id);
-                 batch.update(docRef, update.data);
-             });
-
-             try {
-                 await batch.commit();
-                 console.log("Batch update successful.");
-                 showSaveStatus(`${updates.length} match(es) updated successfully!`, false);
-                 loadMatchesAdmin();
-             } catch (error) {
-                 console.error("Error committing batch update for matches:", error);
-                 showSaveStatus(`Error saving match changes: ${error.message}`, true);
-             }
+             if (updates.length === 0 && !overallError) { showSaveStatus('No changes detected.', false); return; }
+             if (updates.length === 0 && overallError) { console.log("No valid changes due to errors."); return; }
+             console.log(`Batch update for ${updates.length} matches.`); const batch = db.batch();
+             updates.forEach(update => batch.update(db.collection('matches').doc(update.id), update.data));
+             try { await batch.commit(); console.log("Batch update successful."); showSaveStatus(`${updates.length} match(es) updated!`, false); loadMatchesAdmin(); }
+             catch (error) { console.error("Error batch update matches:", error); showSaveStatus(`Error: ${error.message}`, true); }
         });
 
          // Save Individual New Player
@@ -856,118 +801,42 @@
              console.log("Toggle Add New Player form.");
               if (addPlayerForm) addPlayerForm.classList.toggle('hidden');
         });
-        // **REFINED saveNewPlayerButton listener**
         saveNewPlayerButton.addEventListener('click', async () => {
+            // ... (save new player logic remains the same) ...
              console.log("Attempting to save new player...");
-            const nameInput = document.getElementById('new-player-name');
-            const avatarInput = document.getElementById('new-player-avatar');
-            const matchesInput = document.getElementById('new-player-matches');
-            const winsInput = document.getElementById('new-player-wins');
-            const lossesInput = document.getElementById('new-player-losses');
-            const pointsInput = document.getElementById('new-player-points');
-
-            // Ensure all elements exist before proceeding
-             if (!nameInput || !avatarInput || !matchesInput || !winsInput || !lossesInput || !pointsInput) {
-                 console.error("Save New Player Error: One or more form input elements not found.");
-                 showSaveStatus('Error: Could not find player form elements. UI might be broken.', true);
-                 return;
-             }
-
-            const newPlayerData = {
-                 name: nameInput.value.trim(),
-                 avatar: avatarInput.value.trim().toUpperCase(),
-                 matches: parseInt(matchesInput.value) || 0, // Default to 0 if parsing fails
-                 wins: parseInt(winsInput.value) || 0,
-                 losses: parseInt(lossesInput.value) || 0,
-                 points: parseInt(pointsInput.value) || 0
-            };
-
-            if (!newPlayerData.name) {
-                 console.warn("New player validation failed: Name required.");
-                showSaveStatus('Error: Player Name is required.', true);
-                return;
-            }
-             console.log("New player data validated:", newPlayerData);
-
+             const nameInput = document.getElementById('new-player-name'); const avatarInput = document.getElementById('new-player-avatar'); const matchesInput = document.getElementById('new-player-matches');
+             const winsInput = document.getElementById('new-player-wins'); const lossesInput = document.getElementById('new-player-losses'); const pointsInput = document.getElementById('new-player-points');
+             if (!nameInput || !avatarInput || !matchesInput || !winsInput || !lossesInput || !pointsInput) { console.error("Save New Player Error: Input element(s) missing."); showSaveStatus('Error: Player form broken.', true); return; }
+             const newPlayerData = { name: nameInput.value.trim(), avatar: avatarInput.value.trim().toUpperCase(), matches: parseInt(matchesInput.value) || 0, wins: parseInt(winsInput.value) || 0, losses: parseInt(lossesInput.value) || 0, points: parseInt(pointsInput.value) || 0 };
+             if (!newPlayerData.name) { console.warn("Validation fail: Name required."); showSaveStatus('Error: Player Name required.', true); return; }
+             console.log("New player validated:", newPlayerData);
              try {
-                 const docRef = await db.collection('leaderboard').add(newPlayerData);
-                 console.log("New player added successfully with ID:", docRef.id);
-                 showSaveStatus('New player added successfully!', false);
-                 addPlayerForm.classList.add('hidden');
-                 // Reset form fields more robustly
-                 nameInput.value = '';
-                 avatarInput.value = '';
-                 matchesInput.value = '0';
-                 winsInput.value = '0';
-                 lossesInput.value = '0';
-                 pointsInput.value = '0';
-                 loadLeaderboardAdmin(); // Reload
-             } catch (error) {
-                 console.error("Error adding new player to Firestore:", error);
-                 showSaveStatus(`Error adding player: ${error.message}`, true);
-             }
+                 const docRef = await db.collection('leaderboard').add(newPlayerData); console.log("New player added ID:", docRef.id); showSaveStatus('New player added!', false);
+                 addPlayerForm.classList.add('hidden'); nameInput.value = ''; avatarInput.value = ''; matchesInput.value = '0'; winsInput.value = '0'; lossesInput.value = '0'; pointsInput.value = '0';
+                 loadLeaderboardAdmin();
+             } catch (error) { console.error("Error adding player:", error); showSaveStatus(`Error: ${error.message}`, true); }
         });
-
 
          // Save ALL Leaderboard Changes
         saveLeaderboardChangesButton.addEventListener('click', async () => {
-            console.log("Attempting to save all leaderboard changes...");
-             const updates = [];
+            // ... (save all leaderboard changes logic remains the same) ...
+             console.log("Attempting to save all leaderboard changes..."); const updates = [];
              document.querySelectorAll('#leaderboard-body-admin tr').forEach(row => {
-                 const id = row.dataset.id;
-                 if (!id) return; // Skip header or rows without ID
-
-                 const playerData = {};
-                 let hasParsingError = false;
+                 const id = row.dataset.id; if (!id) return;
+                 const playerData = {}; let hasParsingError = false;
                  row.querySelectorAll('input').forEach(input => {
-                     const field = input.dataset.field;
-                     let value = input.value.trim();
-
-                     if (input.type === 'number') {
-                         const parsedValue = parseInt(value);
-                         if (isNaN(parsedValue)) {
-                              console.error(`Invalid number input for player ${id}, field ${field}: "${value}"`);
-                              showSaveStatus(`Error: Invalid number entered for player ${id}, field ${field}.`, true);
-                              hasParsingError = true;
-                              value = 0; // Default to 0 on error? Or skip update?
-                         } else {
-                             value = parsedValue;
-                         }
-                     } else if (field === 'avatar') {
-                         value = value.toUpperCase();
-                     }
+                     const field = input.dataset.field; let value = input.value.trim();
+                     if (input.type === 'number') { const parsedValue = parseInt(value); if (isNaN(parsedValue)) { console.error(`Invalid num PID ${id}, field ${field}: "${value}"`); showSaveStatus(`Error: Invalid number for ${id}/${field}.`, true); hasParsingError = true; value = 0; } else { value = parsedValue; } }
+                     else if (field === 'avatar') { value = value.toUpperCase(); }
                      playerData[field] = value;
                  });
-
-                 // Only add to updates if no parsing error occurred for this row
-                 if (!hasParsingError) {
-                     console.log(`Queueing update for player ${id}:`, playerData);
-                     updates.push({ id: id, data: playerData });
-                 }
+                 if (!hasParsingError) { console.log(`Queueing update PID ${id}:`, playerData); updates.push({ id: id, data: playerData }); }
              });
-
-             if (updates.length === 0) {
-                 console.log("No valid leaderboard changes detected to save.");
-                 showSaveStatus('No valid changes detected in leaderboard.', false); // Changed message slightly
-                 return;
-             }
-
-             console.log(`Preparing batch update for ${updates.length} players.`);
-             const batch = db.batch();
-             updates.forEach(update => {
-                 const docRef = db.collection('leaderboard').doc(update.id);
-                 batch.update(docRef, update.data);
-             });
-
-             try {
-                 await batch.commit();
-                  console.log("Leaderboard batch update successful.");
-                 showSaveStatus(`${updates.length} player(s) updated successfully!`, false);
-                 loadLeaderboardAdmin();
-             } catch (error) {
-                 console.error("Error updating leaderboard:", error);
-                 showSaveStatus(`Error saving leaderboard changes: ${error.message}`, true);
-             }
+             if (updates.length === 0) { console.log("No valid leaderboard changes."); showSaveStatus('No changes detected.', false); return; }
+             console.log(`Batch update for ${updates.length} players.`); const batch = db.batch();
+             updates.forEach(update => batch.update(db.collection('leaderboard').doc(update.id), update.data));
+             try { await batch.commit(); console.log("Leaderboard batch successful."); showSaveStatus(`${updates.length} player(s) updated!`, false); loadLeaderboardAdmin(); }
+             catch (error) { console.error("Error updating leaderboard:", error); showSaveStatus(`Error: ${error.message}`, true); }
         });
 
 
@@ -977,82 +846,28 @@
             loadBracketAdmin(e.target.value)
         });
         saveBracketChangesButton.addEventListener('click', async () => {
+            // ... (save bracket changes logic remains the same) ...
              const bracketType = bracketEditor?.dataset.type;
             console.log(`Attempting to save bracket changes for: ${bracketType}`);
-            if (!bracketType) {
-                 console.error("Save Bracket Error: Cannot determine bracket type from dataset.");
-                showSaveStatus('Error: Cannot determine which bracket to save. Select bracket type or ensure editor loaded.', true);
-                return;
-            }
-
-            const bracketData = { rounds: [] };
-             let errorInData = false;
-
+            if (!bracketType) { console.error("Save Bracket Error: No type."); showSaveStatus('Error: Cannot determine bracket type.', true); return; }
+            const bracketData = { rounds: [] }; let errorInData = false;
             bracketEditor.querySelectorAll('.bracket-round').forEach((roundDiv, roundIndex) => {
-                 console.log(`Processing round ${roundIndex + 1} for saving...`);
-                const round = {
-                    name: roundDiv.querySelector('.round-name').value.trim() || `Round ${roundIndex + 1}`,
-                    matches: []
-                };
-
+                 console.log(`Saving round ${roundIndex + 1}...`); const round = { name: roundDiv.querySelector('.round-name').value.trim() || `Round ${roundIndex + 1}`, matches: [] };
                 roundDiv.querySelectorAll('.bracket-match').forEach((matchDiv, matchIndex) => {
-                    console.log(`Processing match ${matchIndex + 1} in round ${roundIndex + 1}...`);
-                    const t1ScoreInput = matchDiv.querySelector('.bracket-team1-score').value;
-                    const t2ScoreInput = matchDiv.querySelector('.bracket-team2-score').value;
-                    const winnerNameInput = matchDiv.querySelector('.bracket-winner-name').value.trim();
-                    const t1Name = matchDiv.querySelector('.bracket-team1-name').value.trim();
-                     const t2Name = matchDiv.querySelector('.bracket-team2-name').value.trim();
-
-                    const t1Score = t1ScoreInput !== '' ? parseInt(t1ScoreInput) : null;
-                    const t2Score = t2ScoreInput !== '' ? parseInt(t2ScoreInput) : null;
-
-                    const match = {
-                        team1: { name: t1Name, score: t1Score },
-                        team2: { name: t2Name, score: t2Score },
-                        winnerName: winnerNameInput || null,
-                        completed: matchDiv.querySelector('.bracket-match-completed').checked
-                    };
-
-                     if ((t1ScoreInput !== '' && isNaN(t1Score)) || (t2ScoreInput !== '' && isNaN(t2Score))) {
-                         console.error(`Invalid score input in R${roundIndex+1} M${matchIndex+1}. T1: ${t1ScoreInput}, T2: ${t2ScoreInput}`);
-                         showSaveStatus(`Error: Invalid score in Round ${roundIndex+1}, Match ${matchIndex+1}. Please enter numbers only.`, true);
-                         errorInData = true;
-                     }
-
-                     if(match.winnerName && match.completed) {
-                         if (match.winnerName.toLowerCase() === match.team1.name?.toLowerCase()) {
-                             match.winner = match.team1.name;
-                         } else if (match.winnerName.toLowerCase() === match.team2.name?.toLowerCase()) {
-                            match.winner = match.team2.name;
-                         } else {
-                              console.warn(`Winner name "${match.winnerName}" in R${roundIndex+1} M${matchIndex+1} doesn't match team names.`);
-                              match.winner = null;
-                         }
-                     } else {
-                         match.winner = null;
-                     }
-
-                     console.log(`Match data compiled for R${roundIndex+1} M${matchIndex+1}:`, match);
-                    round.matches.push(match);
-                });
-                bracketData.rounds.push(round);
+                     console.log(`Saving match ${matchIndex + 1}...`); const t1ScoreInput = matchDiv.querySelector('.bracket-team1-score').value; const t2ScoreInput = matchDiv.querySelector('.bracket-team2-score').value;
+                     const winnerNameInput = matchDiv.querySelector('.bracket-winner-name').value.trim(); const t1Name = matchDiv.querySelector('.bracket-team1-name').value.trim(); const t2Name = matchDiv.querySelector('.bracket-team2-name').value.trim();
+                     const t1Score = t1ScoreInput !== '' ? parseInt(t1ScoreInput) : null; const t2Score = t2ScoreInput !== '' ? parseInt(t2ScoreInput) : null;
+                     const match = { team1: { name: t1Name, score: t1Score }, team2: { name: t2Name, score: t2Score }, winnerName: winnerNameInput || null, completed: matchDiv.querySelector('.bracket-match-completed').checked };
+                     if ((t1ScoreInput !== '' && isNaN(t1Score)) || (t2ScoreInput !== '' && isNaN(t2Score))) { console.error(`Invalid score R${roundIndex+1} M${matchIndex+1}`); showSaveStatus(`Error: Invalid score R${roundIndex+1} M${matchIndex+1}.`, true); errorInData = true; }
+                     if(match.winnerName && match.completed) { if (match.winnerName.toLowerCase() === match.team1.name?.toLowerCase()) { match.winner = match.team1.name; } else if (match.winnerName.toLowerCase() === match.team2.name?.toLowerCase()) { match.winner = match.team2.name; } else { console.warn(`Winner name mismatch R${roundIndex+1} M${matchIndex+1}`); match.winner = null; } }
+                     else { match.winner = null; }
+                     round.matches.push(match);
+                }); bracketData.rounds.push(round);
             });
-
-             if (errorInData) {
-                 console.error("Bracket saving aborted due to data errors.");
-                 return;
-             }
-
+             if (errorInData) { console.error("Save aborted due to data errors."); return; }
              console.log(`Compiled bracket data for ${bracketType}:`, bracketData);
-             try {
-                 const docRef = db.collection('brackets').doc(bracketType);
-                 await docRef.set(bracketData);
-                  console.log("Bracket data saved successfully to Firestore.");
-                 showSaveStatus(`${bracketType} bracket saved successfully!`, false);
-             } catch (error) {
-                 console.error(`Error saving ${bracketType} bracket to Firestore:`, error);
-                 showSaveStatus(`Error saving ${bracketType} bracket: ${error.message}`, true);
-             }
+             try { await db.collection('brackets').doc(bracketType).set(bracketData); console.log("Bracket saved successfully."); showSaveStatus(`${bracketType} bracket saved!`, false); }
+             catch (error) { console.error(`Error saving ${bracketType} bracket:`, error); showSaveStatus(`Error: ${error.message}`, true); }
         });
 
         // --- Initial Load Call ---

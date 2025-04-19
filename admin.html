@@ -31,7 +31,7 @@
         th, td { border: 1px solid #444; padding: 8px; text-align: left; }
         th { background-color: rgba(255, 87, 34, 0.1); color: var(--orange); }
         .match-editor, .player-editor, .bracket-editor { margin-bottom: 15px; padding: 10px; border: 1px dashed #555; border-radius: 5px; }
-        .bracket-round { margin-bottom: 10px; padding: 15px; border-left: 2px solid var(--orange); background-color: rgba(0,0,0,0.1); /* Added slight background */ }
+        .bracket-round { margin-bottom: 10px; padding: 15px; border-left: 2px solid var(--orange); background-color: rgba(0,0,0,0.1); }
         .bracket-match { margin-bottom: 10px; padding: 10px; border: 1px solid #444; border-radius: 4px; background-color: var(--dark-accent); }
         .matches-in-round { padding-top: 10px; }
     </style>
@@ -117,10 +117,10 @@
                  <h4>New Player Details</h4>
                  <label>Name:</label><input type="text" id="new-player-name">
                  <label>Avatar (Initials):</label><input type="text" id="new-player-avatar" maxlength="2">
-                 <label>Matches:</label><input type="number" id="new-player-matches" value="0">
-                 <label>Wins:</label><input type="number" id="new-player-wins" value="0">
-                 <label>Losses:</label><input type="number" id="new-player-losses" value="0">
-                 <label>Points:</label><input type="number" id="new-player-points" value="0">
+                 <label>Matches:</label><input type="number" id="new-player-matches" value="0" min="0"> <!-- Added min=0 -->
+                 <label>Wins:</label><input type="number" id="new-player-wins" value="0" min="0"> <!-- Added min=0 -->
+                 <label>Losses:</label><input type="number" id="new-player-losses" value="0" min="0"> <!-- Added min=0 -->
+                 <label>Points:</label><input type="number" id="new-player-points" value="0"> <!-- Allow negative points? -->
                  <button id="save-new-player">Save New Player</button>
                  <button type="button" onclick="document.getElementById('add-player-form').classList.add('hidden')">Cancel</button>
             </div>
@@ -340,15 +340,15 @@
                           <td>${rank++}</td>
                           <td><input type="text" value="${player.name || ''}" data-field="name"></td>
                           <td><input type="text" value="${player.avatar || ''}" data-field="avatar" maxlength="2"></td>
-                          <td><input type="number" value="${player.matches || 0}" data-field="matches"></td>
-                          <td><input type="number" value="${player.wins || 0}" data-field="wins"></td>
-                          <td><input type="number" value="${player.losses || 0}" data-field="losses"></td>
+                          <td><input type="number" value="${player.matches || 0}" data-field="matches" min="0"></td> <!-- Added min -->
+                          <td><input type="number" value="${player.wins || 0}" data-field="wins" min="0"></td> <!-- Added min -->
+                          <td><input type="number" value="${player.losses || 0}" data-field="losses" min="0"></td> <!-- Added min -->
                           <td><input type="number" value="${player.points || 0}" data-field="points"></td>
                            <td><button class="delete-player-button" data-id="${player.id}">Delete</button></td>
                       `;
                      leaderboardBodyAdmin.appendChild(row);
                  });
-                 attachPlayerDeleteListeners();
+                 attachPlayerDeleteListeners(); // Make sure listeners are attached after rendering
 
              } catch (error) {
                  console.error("Error loading leaderboard:", error);
@@ -357,22 +357,30 @@
          }
 
          function attachPlayerDeleteListeners() {
-             document.querySelectorAll('#leaderboard-body-admin .delete-player-button').forEach(button => {
-                 button.replaceWith(button.cloneNode(true));
-             });
-             document.querySelectorAll('#leaderboard-body-admin .delete-player-button').forEach(button => {
-                 button.addEventListener('click', async (e) => {
+             console.log("Attaching player delete listeners...");
+             const buttons = document.querySelectorAll('#leaderboard-body-admin .delete-player-button');
+              console.log(`Found ${buttons.length} delete player buttons.`);
+             buttons.forEach(button => {
+                 // More robust listener removal/re-attachment
+                 const newButton = button.cloneNode(true);
+                 button.parentNode.replaceChild(newButton, button);
+
+                 newButton.addEventListener('click', async (e) => {
                      const id = e.target.dataset.id;
+                     if (!id) {
+                          console.error("Delete Error: No ID found on button dataset.");
+                          return;
+                     }
                      const playerName = e.target.closest('tr')?.querySelector('input[data-field="name"]')?.value || `ID: ${id}`;
                      console.log(`Attempting to delete player: ${playerName} (ID: ${id})`);
-                     if (confirm(`Are you sure you want to delete player ${playerName}?`)) {
+                     if (confirm(`Are you sure you want to delete player ${playerName}? This action is permanent.`)) {
                          try {
                              await db.collection('leaderboard').doc(id).delete();
-                              console.log(`Player ${id} deleted.`);
+                              console.log(`Player ${id} deleted from Firestore.`);
                              showSaveStatus('Player deleted successfully!', false);
-                             loadLeaderboardAdmin();
+                             loadLeaderboardAdmin(); // Reload the list from Firestore
                          } catch (error) {
-                             console.error("Error deleting player:", error);
+                             console.error(`Error deleting player ${id} from Firestore:`, error);
                              showSaveStatus(`Error deleting player: ${error.message}`, true);
                          }
                      } else { console.log("Deletion cancelled."); }
@@ -859,15 +867,30 @@
              console.log("Toggle Add New Player form.");
               if (addPlayerForm) addPlayerForm.classList.toggle('hidden');
         });
+        // **REFINED saveNewPlayerButton listener**
         saveNewPlayerButton.addEventListener('click', async () => {
              console.log("Attempting to save new player...");
+            const nameInput = document.getElementById('new-player-name');
+            const avatarInput = document.getElementById('new-player-avatar');
+            const matchesInput = document.getElementById('new-player-matches');
+            const winsInput = document.getElementById('new-player-wins');
+            const lossesInput = document.getElementById('new-player-losses');
+            const pointsInput = document.getElementById('new-player-points');
+
+            // Ensure all elements exist before proceeding
+             if (!nameInput || !avatarInput || !matchesInput || !winsInput || !lossesInput || !pointsInput) {
+                 console.error("Save New Player Error: One or more form input elements not found.");
+                 showSaveStatus('Error: Could not find player form elements. UI might be broken.', true);
+                 return;
+             }
+
             const newPlayerData = {
-                 name: document.getElementById('new-player-name').value.trim(),
-                 avatar: document.getElementById('new-player-avatar').value.trim().toUpperCase(),
-                 matches: parseInt(document.getElementById('new-player-matches').value) || 0,
-                 wins: parseInt(document.getElementById('new-player-wins').value) || 0,
-                 losses: parseInt(document.getElementById('new-player-losses').value) || 0,
-                 points: parseInt(document.getElementById('new-player-points').value) || 0
+                 name: nameInput.value.trim(),
+                 avatar: avatarInput.value.trim().toUpperCase(),
+                 matches: parseInt(matchesInput.value) || 0, // Default to 0 if parsing fails
+                 wins: parseInt(winsInput.value) || 0,
+                 losses: parseInt(lossesInput.value) || 0,
+                 points: parseInt(pointsInput.value) || 0
             };
 
             if (!newPlayerData.name) {
@@ -882,13 +905,20 @@
                  console.log("New player added successfully with ID:", docRef.id);
                  showSaveStatus('New player added successfully!', false);
                  addPlayerForm.classList.add('hidden');
-                 addPlayerForm.querySelectorAll('input').forEach(input => input.value = (input.type === 'number' ? '0' : ''));
-                 loadLeaderboardAdmin();
+                 // Reset form fields more robustly
+                 nameInput.value = '';
+                 avatarInput.value = '';
+                 matchesInput.value = '0';
+                 winsInput.value = '0';
+                 lossesInput.value = '0';
+                 pointsInput.value = '0';
+                 loadLeaderboardAdmin(); // Reload
              } catch (error) {
                  console.error("Error adding new player to Firestore:", error);
                  showSaveStatus(`Error adding player: ${error.message}`, true);
              }
         });
+
 
          // Save ALL Leaderboard Changes
         saveLeaderboardChangesButton.addEventListener('click', async () => {
@@ -896,26 +926,40 @@
              const updates = [];
              document.querySelectorAll('#leaderboard-body-admin tr').forEach(row => {
                  const id = row.dataset.id;
-                 if (!id) return;
+                 if (!id) return; // Skip header or rows without ID
 
                  const playerData = {};
+                 let hasParsingError = false;
                  row.querySelectorAll('input').forEach(input => {
                      const field = input.dataset.field;
                      let value = input.value.trim();
+
                      if (input.type === 'number') {
-                         value = parseInt(value) || 0; // Ensure it's a number
+                         const parsedValue = parseInt(value);
+                         if (isNaN(parsedValue)) {
+                              console.error(`Invalid number input for player ${id}, field ${field}: "${value}"`);
+                              showSaveStatus(`Error: Invalid number entered for player ${id}, field ${field}.`, true);
+                              hasParsingError = true;
+                              value = 0; // Default to 0 on error? Or skip update?
+                         } else {
+                             value = parsedValue;
+                         }
                      } else if (field === 'avatar') {
                          value = value.toUpperCase();
                      }
                      playerData[field] = value;
                  });
-                 console.log(`Queueing update for player ${id}:`, playerData);
-                 updates.push({ id: id, data: playerData });
+
+                 // Only add to updates if no parsing error occurred for this row
+                 if (!hasParsingError) {
+                     console.log(`Queueing update for player ${id}:`, playerData);
+                     updates.push({ id: id, data: playerData });
+                 }
              });
 
              if (updates.length === 0) {
-                 console.log("No leaderboard changes detected to save.");
-                 showSaveStatus('No changes detected in leaderboard.', false);
+                 console.log("No valid leaderboard changes detected to save.");
+                 showSaveStatus('No valid changes detected in leaderboard.', false); // Changed message slightly
                  return;
              }
 
@@ -923,7 +967,7 @@
              const batch = db.batch();
              updates.forEach(update => {
                  const docRef = db.collection('leaderboard').doc(update.id);
-                 batch.update(docRef, update.data); // Use update
+                 batch.update(docRef, update.data);
              });
 
              try {
@@ -944,7 +988,7 @@
             loadBracketAdmin(e.target.value)
         });
         saveBracketChangesButton.addEventListener('click', async () => {
-             const bracketType = bracketEditor?.dataset.type; // Use optional chaining
+             const bracketType = bracketEditor?.dataset.type;
             console.log(`Attempting to save bracket changes for: ${bracketType}`);
             if (!bracketType) {
                  console.error("Save Bracket Error: Cannot determine bracket type from dataset.");

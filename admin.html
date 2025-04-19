@@ -256,43 +256,32 @@
              }
         }
 
-        async function loadMatchesAdmin() {
-            if (!matchesList) { console.error("loadMatchesAdmin: matchesList element not found"); return; }
-            matchesList.innerHTML = 'Loading matches...';
-            console.log("Loading matches from Firestore...");
+        async function loadBracketAdmin(bracketType = 'pro') {
+            if (!bracketEditor) { console.error("loadBracketAdmin: bracketEditor element not found"); return; }
+            bracketEditor.innerHTML = `Loading ${bracketType} bracket...`;
+             console.log(`--- Loading bracket: ${bracketType} ---`); // Add separator
             try {
-                const snapshot = await db.collection('matches').orderBy('date', 'desc').get();
-                console.log(`Found ${snapshot.size} matches.`);
-                matchesList.innerHTML = '';
-                if (snapshot.empty) {
-                    matchesList.innerHTML = '<p>No matches found.</p>';
-                    return;
-                }
-                snapshot.forEach(doc => {
-                    const match = { id: doc.id, ...doc.data() };
-                    const dateForInput = match.date?.toDate ? new Date(match.date.toDate().getTime() - match.date.toDate().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
-                    const matchDiv = document.createElement('div');
-                    matchDiv.classList.add('match-editor');
-                    matchDiv.dataset.id = match.id;
-                     matchDiv.innerHTML = `
-                         <h4>Match ID: ${match.id}</h4>
-                         <label>Date:</label><input type="datetime-local" value="${dateForInput}" data-field="date">
-                         <label>Type:</label><input type="text" value="${match.type || ''}" data-field="type">
-                         <label>Team 1:</label><input type="text" value="${match.team1?.name || ''}" data-field="team1.name">
-                         <label>Team 1 Logo:</label><input type="text" value="${match.team1?.logo || ''}" data-field="team1.logo" maxlength="2">
-                         <label>Team 2:</label><input type="text" value="${match.team2?.name || ''}" data-field="team2.name">
-                         <label>Team 2 Logo:</label><input type="text" value="${match.team2?.logo || ''}" data-field="team2.logo" maxlength="2">
-                         <label>Venue:</label><input type="text" value="${match.venue || ''}" data-field="venue">
-                         <label>Stream:</label><input type="text" value="${match.streamLink || ''}" data-field="streamLink">
-                         <button class="delete-match-button" data-id="${match.id}">Delete Match</button>
-                     `;
-                    matchesList.appendChild(matchDiv);
-                });
-                 attachMatchDeleteListeners();
+                 console.log(`[${bracketType}] Getting document reference...`);
+                const docRef = db.collection('brackets').doc(bracketType);
 
+                 console.log(`[${bracketType}] Attempting to get document snapshot...`);
+                const docSnap = await docRef.get();
+                 console.log(`[${bracketType}] Document snapshot received. Exists: ${docSnap.exists()}`);
+
+                if (docSnap.exists()) {
+                    const bracketData = docSnap.data();
+                     console.log(`[${bracketType}] Loaded bracket data:`, JSON.parse(JSON.stringify(bracketData))); // Log a copy
+                    renderBracketEditor(bracketData, bracketType);
+                } else {
+                     console.log(`[${bracketType}] No bracket data found. Rendering empty editor.`);
+                     renderBracketEditor({ rounds: [] }, bracketType, true); // Pass flag to attach listeners without clearing
+                     bracketEditor.innerHTML = `<p>No bracket data found for ${bracketType}. You can add rounds and matches below.</p>`; // Set message after potentially attaching listeners
+                }
+                 console.log(`--- Finished loading bracket: ${bracketType} successfully ---`);
             } catch (error) {
-                console.error("Error loading matches:", error);
-                matchesList.innerHTML = '<p style="color:red;">Error loading matches.</p>';
+                console.error(`--- ERROR loading ${bracketType} bracket: ---`, error); // Add separator
+                 bracketEditor.innerHTML = `<p style="color:red;">Error loading ${bracketType} bracket. Check console.</p>`; // Update message
+                 renderBracketEditor({ rounds: [] }, bracketType, true); // Attach listeners even on error
             }
         }
 

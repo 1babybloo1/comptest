@@ -528,7 +528,7 @@
      }
 
 
-    // --- Bracket Load / Render (Rewritten for visual layout) ---
+    // --- Bracket Load / Render (Rewritten for visual layout - FIX APPLIED HERE) ---
     async function loadBracketAdmin(bracketType = 'pro') {
         if (!bracketEditor || !bracketLoadingIndicator) {
             console.error("loadBracketAdmin: necessary bracket elements not found");
@@ -545,7 +545,10 @@
             const docRef = db.collection('brackets').doc(bracketType);
             const docSnap = await docRef.get();
 
-            if (docSnap.exists()) {
+            // *** FIX APPLIED HERE: Use docSnap.exists property instead of method ***
+            console.log(`[${bracketType}] Document snapshot received. Exists: ${docSnap.exists}`);
+
+            if (docSnap.exists) { // Changed from docSnap.exists()
                 currentBracketData = docSnap.data();
                 // Ensure rounds and matches arrays exist
                 if (!currentBracketData.rounds) currentBracketData.rounds = [];
@@ -561,6 +564,7 @@
             console.log(`--- Finished loading bracket: ${bracketType} successfully ---`);
         } catch (error) {
             console.error(`--- ERROR loading ${bracketType} bracket: ---`, error);
+            // Display error IN the main editor area
             bracketEditor.innerHTML = `<p style="color:red;">Error loading ${bracketType} bracket. Check console.</p>`;
              currentBracketData = { rounds: [] }; // Reset state on error
         } finally {
@@ -688,7 +692,18 @@
 
         saveBracketChangesButton.removeEventListener('click', handleSaveBracketClick); // Remove before adding
         saveBracketChangesButton.addEventListener('click', handleSaveBracketClick);
+
+        // Direct listener for the bracket select dropdown
+        bracketSelect.removeEventListener('change', handleBracketSelectChange);
+        bracketSelect.addEventListener('change', handleBracketSelectChange);
     }
+
+    function handleBracketSelectChange(e) {
+        console.log(`Bracket selection changed to: ${e.target.value}`);
+        // Optionally warn user about unsaved changes here before loading
+        loadBracketAdmin(e.target.value);
+    }
+
 
     function handleAddRoundClick() {
          console.log("Add Round button clicked (direct listener). Adding to state.");
@@ -708,6 +723,7 @@
         dataToSave.rounds.forEach((round, roundIndex) => {
             // Clean up round name
             round.name = round.name ? round.name.trim() : `Round ${roundIndex + 1}`;
+            if (!round.matches) round.matches = []; // Ensure matches array exists even if empty
             round.matches.forEach((match, matchIndex) => {
                 // Validate scores (should already be numbers or null from input handler, check for NaN if needed)
                  if ((match.team1?.score !== null && match.team1?.score !== undefined && isNaN(match.team1.score)) || (match.team2?.score !== null && match.team2?.score !== undefined && isNaN(match.team2.score))) {
@@ -789,7 +805,7 @@
         const matchIndex = target.dataset.matchIndex ? parseInt(target.dataset.matchIndex) : null;
         const field = target.dataset.field;
 
-        if (roundIndex !== null) { // Ensure it's within a round
+        if (roundIndex !== null) { // Ensure it's within a round column
             if (matchIndex === null && field === 'name') { // It's a round name input
                  console.log(`Updating round ${roundIndex} name to: ${target.value}`);
                  if (currentBracketData.rounds && currentBracketData.rounds[roundIndex]) {
@@ -1021,7 +1037,7 @@
 
     document.addEventListener('DOMContentLoaded', () => {
          console.log("DOM Content Loaded.");
-         // Attach listeners for non-dynamic elements here if needed
+         // Initial bracket load is handled by onAuthStateChanged -> loadAdminData
     });
 
     // --- END OF SCRIPT --- //

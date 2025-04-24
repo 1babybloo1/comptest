@@ -412,23 +412,42 @@
     }
 
     function listenForOnlineAdmins() {
-        console.log("Starting listener for online admins...");
+        console.log("Starting listener for online admins (including self)..."); // Modified log
         if (onlineUsersListenerUnsubscribe) {
              console.log("Detaching existing online users listener.");
             onlineUsersListenerUnsubscribe(); // Detach previous listener if exists
         }
 
+        // Ensure we have the current user's ID before attaching listener
+        if (!currentUserId) {
+            console.warn("listenForOnlineAdmins called before currentUserId is set. Aborting.");
+            // Optionally display an error message in the UI
+            if (onlineUsersContainer) onlineUsersContainer.innerHTML = '<div class="loading-indicator" style="color:orange;">Waiting for user ID...</div>';
+            return;
+        }
+
+
         const query = db.collection(PRESENCE_COLLECTION);
         onlineUsersListenerUnsubscribe = query.onSnapshot(async (snapshot) => {
             console.log(`Presence snapshot received: ${snapshot.size} total users online.`);
             const now = Date.now();
-            const onlineAdmins = [];
+            const onlineAdmins = []; // Will include self now
 
-            // Fetch the *latest* list of authorized admins in case it changed
-            // Note: For efficiency, you might cache this and refresh periodically instead of every snapshot
-             const authorizedSnapshot = await db.collection('admins').get();
-             const currentAuthorizedUIDs = new Set(authorizedSnapshot.docs.map(doc => doc.id));
-             authorizedAdminUIDs = currentAuthorizedUIDs; // Update global set
+            // --- Fetch latest authorized admins ---
+            let currentAuthorizedUIDs = new Set(); // Default to empty set
+            try {
+                const authorizedSnapshot = await db.collection('admins').get();
+                currentAuthorizedUIDs = new Set(authorizedSnapshot.docs.map(doc => doc.id));
+                authorizedAdminUIDs = currentAuthorizedUIDs; // Update global set (optional, but good practice)
+                console.log("Fetched authorized admin UIDs:", Array.from(currentAuthorizedUIDs));
+            } catch (err) {
+                console.error("Error fetching authorized admins within listener:", err);
+                // Decide how to handle this - show error? proceed with potentially stale list?
+                // For now, let's proceed but log the error. The check below will fail for users if the set is empty.
+                if (onlineUsersContainer) onlineUsersContainer.innerHTML = '<div class="loading-indicator" style="color:red;">Error checking admin list. Presence may be incomplete.</div>';
+                // return; // Or maybe just return here? Depends on desired behavior on error.
+            }
+            // --- End fetch ---
 
 
             snapshot.forEach(doc => {
@@ -438,31 +457,46 @@
                      console.warn("Skipping presence doc with missing data:", doc.id, user);
                      return;
                  }
-                // Exclude self
-                if (user.uid === currentUserId) return;
 
-                // Check if authorized
-                if (!authorizedAdminUIDs.has(user.uid)) {
-                    console.log(`User ${user.email} (UID: ${user.uid}) is online but not authorized. Skipping.`);
-                    return;
+                // --- FILTERING ---
+                // 1. Check if authorized (using the freshly fetched list)
+                if (!currentAuthorizedUIDs.has(user.uid)) {
+                    console.log(`User ${user.email} (UID: ${user.uid}) is online but NOT in the current authorized list. Skipping.`);
+                    return; // Skip if not authorized
                 }
 
-                // Check if recently active
-                const lastSeenTime = user.lastSeen.toDate().getTime();
+                // 2. Check if recently active
+                let lastSeenTime = null;
+                try {
+                     lastSeenTime = user.lastSeen.toDate().getTime();
+                } catch(e) {
+                     console.error(`Error converting lastSeen to Date for user ${user.uid}. Skipping.`, user.lastSeen, e);
+                     return; // Skip if timestamp is invalid
+                }
+
                 if (now - lastSeenTime < PRESENCE_TIMEOUT_MS) {
+                    // User is Authorized and Active - Add to list
                     onlineAdmins.push(user);
+                    console.log(`User ${user.email} (UID: ${user.uid}) is AUTHORIZED and ACTIVE. Added to display list.`);
                 } else {
-                     console.log(`User ${user.email} (UID: ${user.uid}) last seen ${Math.round((now - lastSeenTime)/1000)}s ago. Considered inactive.`);
-                      // Optional: You could add logic here or a Cloud Function to clean up very old entries
+                     console.log(`User ${user.email} (UID: ${user.uid}) last seen ${Math.round((now - lastSeenTime)/1000)}s ago. Considered inactive. Skipping.`);
+                      // Optional cleanup logic could go here
                 }
+                 // 3. REMOVED filter for current user:
+                 // if (user.uid === currentUserId) return; // <<--- THIS LINE IS REMOVED/COMMENTED OUT
             });
 
-            console.log(`Rendering ${onlineAdmins.length} other active authorized admins.`);
-            renderOnlineUsers(onlineAdmins);
+            console.log(`Rendering ${onlineAdmins.length} active authorized admins (including self).`);
+            renderOnlineUsers(onlineAdmins); // Render the list (including self if active and authorized)
 
         }, (error) => {
-            console.error("Error in presence listener:", error);
-            if(onlineUsersContainer) onlineUsersContainer.innerHTML = '<div class="loading-indicator" style="color:red;">Error loading presence.</div>';
+            console.error("Error in presence listener snapshot:", error);
+            if(onlineUsersContainer) onlineUsersContainer.innerHTML = '<div class="loading-indicator" style="color:red;">Error loading presence data.</div>';
+             // Attempt to detach listener on error?
+             if (onlineUsersListenerUnsubscribe) {
+                 onlineUsersListenerUnsubscribe();
+                 onlineUsersListenerUnsubscribe = null;
+             }
         });
     }
 

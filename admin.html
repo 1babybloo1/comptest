@@ -247,7 +247,7 @@
     // --- START OF SCRIPT --- //
 
     const firebaseConfig = {
-          apiKey: "AIzaSyDWFPys8dbSgis98tbm5PVqMuHqnCpPIxI",
+          apiKey: "AIzaSyDWFPys8dbSgis98tbm5PVqMuHqnCpPIxI", // Replace with your actual config if different
           authDomain: "poxelcomp.firebaseapp.com",
           projectId: "poxelcomp",
           storageBucket: "poxelcomp.firebasestorage.app",
@@ -268,13 +268,9 @@
     const logoutButton = document.getElementById('logout-button');
     const userInfo = document.getElementById('user-info');
     const loginError = document.getElementById('login-error');
-    const authCheckMessage = document.getElementById('auth-check-message'); // Added
+    const authCheckMessage = document.getElementById('auth-check-message');
     const saveStatus = document.getElementById('save-status');
-
-    // Presence UI
     const onlineUsersContainer = document.getElementById('online-users-container');
-
-    // Other sections (Matches, Leaderboard, Bracket)
     const matchesList = document.getElementById('matches-list');
     const addMatchButton = document.getElementById('add-match-button');
     const addMatchForm = document.getElementById('add-match-form');
@@ -295,43 +291,32 @@
     // --- Global State ---
     let currentBracketData = { rounds: [] };
     let currentBracketType = 'pro';
-    let authorizedAdminUIDs = new Set(); // Stores UIDs of authorized admins
-    let currentUserId = null; // Store current user's UID
-    let presenceUpdateInterval = null; // Interval timer for updating 'lastSeen'
-    let onlineUsersListenerUnsubscribe = null; // Function to detach the presence listener
+    // No longer need authorizedAdminUIDs set globally for the listener
+    let currentUserId = null;
+    let presenceUpdateInterval = null;
+    let onlineUsersListenerUnsubscribe = null;
 
     // --- Authorization Check ---
+    // (This function remains crucial for the initial login check)
     async function checkAdminAuthorization(uid) {
         console.log(`Checking authorization for UID: ${uid}`);
         authCheckMessage.textContent = 'Checking authorization...';
         authCheckMessage.style.color = 'orange';
         try {
-            // --- Method 1: Check against an 'admins' collection ---
             const adminDoc = await db.collection('admins').doc(uid).get();
             if (adminDoc.exists) {
-                console.log(`UID ${uid} is authorized.`);
-                authorizedAdminUIDs.add(uid); // Add self to known authorized set
-                 authCheckMessage.textContent = ''; // Clear message on success
+                console.log(`UID ${uid} IS authorized (found in 'admins' collection).`);
+                authCheckMessage.textContent = '';
                 return true;
+            } else {
+                console.log(`UID ${uid} is NOT authorized (document not found in 'admins' collection).`);
+                authCheckMessage.textContent = 'Access Denied: Your account is not authorized for the admin panel.';
+                authCheckMessage.style.color = 'red';
+                return false;
             }
-
-            // --- Method 2: Check against a list in a config doc (alternative) ---
-            // const configDoc = await db.collection('admin_config').doc('authorized_users').get();
-            // if (configDoc.exists && configDoc.data().uids?.includes(uid)) {
-            //     console.log(`UID ${uid} is authorized via config.`);
-            //     authorizedAdminUIDs.add(uid); // Add self
-            //      authCheckMessage.textContent = '';
-            //     return true;
-            // }
-
-            console.log(`UID ${uid} is NOT authorized.`);
-            authCheckMessage.textContent = 'Access Denied: Your account is not authorized for the admin panel.';
-            authCheckMessage.style.color = 'red';
-            return false;
-
         } catch (error) {
             console.error("Error checking admin authorization:", error);
-            authCheckMessage.textContent = 'Error checking authorization. Please try again.';
+            authCheckMessage.textContent = `Error checking authorization: ${error.message}`;
             authCheckMessage.style.color = 'red';
             return false;
         }
@@ -339,195 +324,188 @@
 
     // --- Presence Management ---
     const PRESENCE_COLLECTION = 'online_users';
-    const PRESENCE_TIMEOUT_MS = 90 * 1000; // 90 seconds - consider user inactive after this
-    const PRESENCE_UPDATE_INTERVAL_MS = 60 * 1000; // Update lastSeen every 60 seconds
+    const PRESENCE_TIMEOUT_MS = 90 * 1000; // 90 seconds
+    const PRESENCE_UPDATE_INTERVAL_MS = 60 * 1000; // 60 seconds
 
     async function registerPresence(user) {
         if (!user || !user.uid) return;
-        currentUserId = user.uid; // Store UID globally
+        currentUserId = user.uid;
         const presenceRef = db.collection(PRESENCE_COLLECTION).doc(user.uid);
         const userData = {
             uid: user.uid,
             email: user.email,
-            displayName: user.displayName || user.email.split('@')[0], // Use display name or derive from email
+            displayName: user.displayName || user.email.split('@')[0],
             lastSeen: firebase.firestore.FieldValue.serverTimestamp()
         };
 
         try {
             console.log(`Registering presence for ${user.email} (UID: ${user.uid})`);
-            await presenceRef.set(userData, { merge: true }); // Use set with merge to create/update
+            await presenceRef.set(userData, { merge: true });
 
             // Start periodic update
-            if (presenceUpdateInterval) clearInterval(presenceUpdateInterval); // Clear previous interval if any
+            if (presenceUpdateInterval) clearInterval(presenceUpdateInterval);
             presenceUpdateInterval = setInterval(async () => {
-                try {
-                    // Only update timestamp if user is still logged in
-                     if (auth.currentUser && auth.currentUser.uid === currentUserId) {
-                         console.log(`Updating lastSeen for ${currentUserId}`);
-                         await presenceRef.update({ lastSeen: firebase.firestore.FieldValue.serverTimestamp() });
-                     } else {
-                         // User logged out unexpectedly between interval checks, clear interval
-                         console.warn("User logged out, stopping presence update interval.");
-                         clearInterval(presenceUpdateInterval);
-                         presenceUpdateInterval = null;
-                     }
-                } catch (error) {
-                    console.error("Error updating presence timestamp:", error);
-                    // Optionally stop interval on persistent errors
-                    // clearInterval(presenceUpdateInterval);
-                    // presenceUpdateInterval = null;
+                if (auth.currentUser && auth.currentUser.uid === currentUserId) {
+                    try {
+                        // console.log(`Updating lastSeen for ${currentUserId}`); // Can be noisy
+                        await presenceRef.update({ lastSeen: firebase.firestore.FieldValue.serverTimestamp() });
+                    } catch (error) {
+                        console.error("Error updating presence timestamp:", error);
+                        // Consider stopping interval if permissions error occurs
+                        if (error.code === 'permission-denied') {
+                             console.error("Permission denied updating timestamp. Stopping interval.");
+                             clearInterval(presenceUpdateInterval);
+                             presenceUpdateInterval = null;
+                        }
+                    }
+                } else {
+                    console.warn("User logged out or changed, stopping presence update interval.");
+                    clearInterval(presenceUpdateInterval);
+                    presenceUpdateInterval = null;
                 }
             }, PRESENCE_UPDATE_INTERVAL_MS);
 
-            // Start listening for other online users
+            // Start listening for online users
             listenForOnlineAdmins();
 
         } catch (error) {
             console.error("Error registering initial presence:", error);
+             // Show error to user?
+             if (onlineUsersContainer) onlineUsersContainer.innerHTML = '<div class="loading-indicator" style="color:red;">Error setting up presence.</div>';
         }
     }
 
     async function removePresence(uid) {
         if (!uid) return;
         console.log(`Removing presence for UID: ${uid}`);
-        // Stop periodic updates
         if (presenceUpdateInterval) {
             clearInterval(presenceUpdateInterval);
             presenceUpdateInterval = null;
         }
-        // Stop listening
         if (onlineUsersListenerUnsubscribe) {
             onlineUsersListenerUnsubscribe();
             onlineUsersListenerUnsubscribe = null;
+             console.log("Detached online users listener.");
         }
-        // Remove document from Firestore
         try {
-            await db.collection(PRESENCE_COLLECTION).doc(uid).delete();
-            console.log(`Presence document deleted for ${uid}`);
+            // No need to await if signing out, fire and forget is ok
+            db.collection(PRESENCE_COLLECTION).doc(uid).delete();
+            console.log(`Presence document delete request sent for ${uid}`);
         } catch (error) {
+            // Log error, but don't block sign-out process
             console.error("Error removing presence document:", error);
         }
-        currentUserId = null; // Clear stored UID
-        if(onlineUsersContainer) onlineUsersContainer.innerHTML = '<div class="loading-indicator">Logged out.</div>'; // Clear UI
+        currentUserId = null;
+        if(onlineUsersContainer) onlineUsersContainer.innerHTML = '<div class="loading-indicator">Logged out.</div>';
     }
 
+    // --- *** MODIFIED listenForOnlineAdmins *** ---
     function listenForOnlineAdmins() {
-        console.log("Starting listener for online admins (including self)..."); // Modified log
+        console.log("Starting listener for online admins (v2 - checks activity only)...");
         if (onlineUsersListenerUnsubscribe) {
-             console.log("Detaching existing online users listener.");
-            onlineUsersListenerUnsubscribe(); // Detach previous listener if exists
+            console.log("Detaching existing online users listener before attaching new one.");
+            onlineUsersListenerUnsubscribe();
         }
 
-        // Ensure we have the current user's ID before attaching listener
         if (!currentUserId) {
-            console.warn("listenForOnlineAdmins called before currentUserId is set. Aborting.");
-            // Optionally display an error message in the UI
-            if (onlineUsersContainer) onlineUsersContainer.innerHTML = '<div class="loading-indicator" style="color:orange;">Waiting for user ID...</div>';
+            console.warn("listenForOnlineAdmins called before currentUserId is set. Aborting listener setup.");
+             if (onlineUsersContainer) onlineUsersContainer.innerHTML = '<div class="loading-indicator" style="color:orange;">Waiting for user authentication...</div>';
             return;
         }
 
-
         const query = db.collection(PRESENCE_COLLECTION);
-        onlineUsersListenerUnsubscribe = query.onSnapshot(async (snapshot) => {
-            console.log(`Presence snapshot received: ${snapshot.size} total users online.`);
+        onlineUsersListenerUnsubscribe = query.onSnapshot((snapshot) => { // Removed async here, no longer needed
+            console.log(`Presence snapshot received: ${snapshot.size} total potential documents.`);
             const now = Date.now();
-            const onlineAdmins = []; // Will include self now
-
-            // --- Fetch latest authorized admins ---
-            let currentAuthorizedUIDs = new Set(); // Default to empty set
-            try {
-                const authorizedSnapshot = await db.collection('admins').get();
-                currentAuthorizedUIDs = new Set(authorizedSnapshot.docs.map(doc => doc.id));
-                authorizedAdminUIDs = currentAuthorizedUIDs; // Update global set (optional, but good practice)
-                console.log("Fetched authorized admin UIDs:", Array.from(currentAuthorizedUIDs));
-            } catch (err) {
-                console.error("Error fetching authorized admins within listener:", err);
-                // Decide how to handle this - show error? proceed with potentially stale list?
-                // For now, let's proceed but log the error. The check below will fail for users if the set is empty.
-                if (onlineUsersContainer) onlineUsersContainer.innerHTML = '<div class="loading-indicator" style="color:red;">Error checking admin list. Presence may be incomplete.</div>';
-                // return; // Or maybe just return here? Depends on desired behavior on error.
-            }
-            // --- End fetch ---
-
+            const activeUsers = []; // Renamed from onlineAdmins for clarity
 
             snapshot.forEach(doc => {
                 const user = doc.data();
-                // Basic validation
-                 if (!user || !user.lastSeen || !user.uid || !user.email) {
-                     console.warn("Skipping presence doc with missing data:", doc.id, user);
-                     return;
-                 }
-
-                // --- FILTERING ---
-                // 1. Check if authorized (using the freshly fetched list)
-                if (!currentAuthorizedUIDs.has(user.uid)) {
-                    console.log(`User ${user.email} (UID: ${user.uid}) is online but NOT in the current authorized list. Skipping.`);
-                    return; // Skip if not authorized
+                // --- Basic Validation ---
+                if (!user || !user.uid || !user.email) { // Removed lastSeen check here, do it below
+                    console.warn("Skipping presence doc with missing basic data (uid/email):", doc.id, user);
+                    return;
+                }
+                if (!user.lastSeen) {
+                    console.warn(`Skipping presence doc for ${user.email} (UID: ${user.uid}) due to missing 'lastSeen' field.`);
+                    return;
                 }
 
-                // 2. Check if recently active
+                // --- Check Activity ---
                 let lastSeenTime = null;
                 try {
-                     lastSeenTime = user.lastSeen.toDate().getTime();
-                } catch(e) {
-                     console.error(`Error converting lastSeen to Date for user ${user.uid}. Skipping.`, user.lastSeen, e);
-                     return; // Skip if timestamp is invalid
+                    // Crucial: Ensure lastSeen is a Firestore Timestamp before calling toDate()
+                    if (typeof user.lastSeen.toDate !== 'function') {
+                         throw new Error("lastSeen field is not a Firestore Timestamp object.");
+                    }
+                    lastSeenTime = user.lastSeen.toDate().getTime();
+                } catch (e) {
+                    console.error(`Error converting lastSeen to Date for user ${user.uid}. Skipping user.`, { lastSeenValue: user.lastSeen, error: e });
+                    return; // Skip this user if timestamp is invalid
                 }
 
                 if (now - lastSeenTime < PRESENCE_TIMEOUT_MS) {
-                    // User is Authorized and Active - Add to list
-                    onlineAdmins.push(user);
-                    console.log(`User ${user.email} (UID: ${user.uid}) is AUTHORIZED and ACTIVE. Added to display list.`);
+                    // User is Active - Add to list to be rendered
+                    // We are *assuming* they are authorized because they could write this record.
+                    activeUsers.push(user);
+                    // console.log(`User ${user.email} (UID: ${user.uid}) is ACTIVE. Added to display list.`); // Can be noisy
                 } else {
-                     console.log(`User ${user.email} (UID: ${user.uid}) last seen ${Math.round((now - lastSeenTime)/1000)}s ago. Considered inactive. Skipping.`);
-                      // Optional cleanup logic could go here
+                    // User is Inactive
+                    console.log(`User ${user.email} (UID: ${user.uid}) last seen ${Math.round((now - lastSeenTime)/1000)}s ago. Considered inactive.`);
                 }
-                 // 3. REMOVED filter for current user:
-                 // if (user.uid === currentUserId) return; // <<--- THIS LINE IS REMOVED/COMMENTED OUT
+
+                // REMOVED: Check against fetched admin list - this caused the permission error.
+                // REMOVED: Filter for current user - we decided to show self.
             });
 
-            console.log(`Rendering ${onlineAdmins.length} active authorized admins (including self).`);
-            renderOnlineUsers(onlineAdmins); // Render the list (including self if active and authorized)
+            console.log(`Rendering ${activeUsers.length} active users (including self if active).`);
+            renderOnlineUsers(activeUsers); // Render the list of *active* users
 
         }, (error) => {
             console.error("Error in presence listener snapshot:", error);
-            if(onlineUsersContainer) onlineUsersContainer.innerHTML = '<div class="loading-indicator" style="color:red;">Error loading presence data.</div>';
-             // Attempt to detach listener on error?
-             if (onlineUsersListenerUnsubscribe) {
-                 onlineUsersListenerUnsubscribe();
-                 onlineUsersListenerUnsubscribe = null;
-             }
+            // Display error in the UI
+            if(onlineUsersContainer) onlineUsersContainer.innerHTML = `<div class="loading-indicator" style="color:red;">Error listening for presence: ${error.message}</div>`;
+            // Stop listening if a persistent error occurs (like permission denied on the listener itself)
+            if (onlineUsersListenerUnsubscribe) {
+                onlineUsersListenerUnsubscribe();
+                onlineUsersListenerUnsubscribe = null;
+                 console.log("Detached presence listener due to error.");
+            }
         });
+         console.log("Presence listener attached successfully.");
     }
+    // --- *** END MODIFIED listenForOnlineAdmins *** ---
+
 
     function renderOnlineUsers(users) {
+        // This function remains the same as before
         if (!onlineUsersContainer) return;
-        onlineUsersContainer.innerHTML = ''; // Clear previous state
+        onlineUsersContainer.innerHTML = '';
 
         if (users.length === 0) {
-            onlineUsersContainer.innerHTML = '<div class="loading-indicator">No other admins currently active.</div>';
+             // Changed message slightly for clarity
+            onlineUsersContainer.innerHTML = '<div class="loading-indicator">No admins currently active.</div>';
             return;
         }
 
-        users.sort((a, b) => (a.displayName || a.email).localeCompare(b.displayName || b.email)); // Sort alphabetically
+        // Sort by display name or email
+        users.sort((a, b) => (a.displayName || a.email).localeCompare(b.displayName || b.email));
 
         users.forEach(user => {
             const indicatorDiv = document.createElement('div');
             indicatorDiv.classList.add('user-presence-indicator');
 
             const circleDiv = document.createElement('div');
-            circleDiv.classList.add('user-presence-circle', 'live'); // Add 'live' class for green border
+            circleDiv.classList.add('user-presence-circle', 'live'); // Assume 'live' if they made it here
             const initial = user.email ? user.email.charAt(0).toUpperCase() : '?';
             circleDiv.textContent = initial;
 
             const nameSpan = document.createElement('span');
             nameSpan.classList.add('user-presence-name');
-            // Try to get first name from displayName, fallback to email part
             let name = user.displayName ? user.displayName.split(' ')[0] : user.email.split('@')[0];
-            // Capitalize first letter
             name = name.charAt(0).toUpperCase() + name.slice(1);
             nameSpan.textContent = name;
-            nameSpan.title = user.email; // Show full email on hover
+            nameSpan.title = user.email;
 
             indicatorDiv.appendChild(circleDiv);
             indicatorDiv.appendChild(nameSpan);
@@ -537,89 +515,89 @@
 
 
     // --- Authentication ---
-    auth.onAuthStateChanged(async (user) => { // Make handler async
+    auth.onAuthStateChanged(async (user) => {
         if (user) {
-            console.log("User signed in:", user.email, `(UID: ${user.uid})`);
+            // ADDED Console log for debugging UID mismatch
+            console.log("Auth state changed: User signed in.", { email: user.email, uid: user.uid, displayName: user.displayName });
             loginError.textContent = '';
-            authCheckMessage.textContent = ''; // Clear auth message
+            authCheckMessage.textContent = '';
 
-            // *** CRITICAL: Check Authorization ***
             const isAuthorized = await checkAdminAuthorization(user.uid);
 
             if (isAuthorized) {
-                console.log("Authorization successful. Loading admin panel.");
+                console.log("Authorization successful. Loading admin panel & presence.");
                 loginContainer.classList.add('hidden');
                 adminPanel.classList.remove('hidden');
                 adminPanel.classList.add('fade-in');
                 userInfo.textContent = `Logged in as: ${user.displayName || user.email}`;
-
-                // Start Presence Registration & Load Data
-                await registerPresence(user); // Register presence *after* authorization
-                loadAdminData(); // Load regular admin data
-
+                // Register presence *after* auth success
+                await registerPresence(user);
+                loadAdminData();
             } else {
-                console.log("Authorization failed. Signing out user.");
-                 userInfo.textContent = '';
-                // Don't show admin panel, keep login visible with error
-                 adminPanel.classList.add('hidden');
-                 loginContainer.classList.remove('hidden');
-                // Optionally sign the user out automatically if they aren't authorized
-                // await auth.signOut(); // Uncomment this line to force sign-out on failed authorization
+                console.log("Authorization check failed.");
+                userInfo.textContent = '';
+                adminPanel.classList.add('hidden');
+                loginContainer.classList.remove('hidden');
+                // authCheckMessage is already set by checkAdminAuthorization
+                // Optional: Sign out user if not authorized
+                // await auth.signOut();
             }
-
         } else {
-            console.log("User signed out.");
+            console.log("Auth state changed: User signed out.");
+            // Use await here to ensure presence removal attempt completes before clearing UI fully
             if (currentUserId) {
-                 await removePresence(currentUserId); // Clean up presence using the stored UID
+                await removePresence(currentUserId);
             }
             adminPanel.classList.add('hidden');
             adminPanel.classList.remove('fade-in');
             loginContainer.classList.remove('hidden');
             userInfo.textContent = '';
-            loginError.textContent = ''; // Clear login error on logout
-            authCheckMessage.textContent = ''; // Clear auth message
-            clearAdminUI();
+            loginError.textContent = '';
+            authCheckMessage.textContent = '';
+            clearAdminUI(); // Clear UI after handling presence removal
         }
     });
 
-
+    // --- Login/Logout Buttons ---
     loginButton.addEventListener('click', () => {
         loginError.textContent = '';
-        authCheckMessage.textContent = ''; // Clear messages on new attempt
-        console.log("Attempting Google Sign-in...");
+        authCheckMessage.textContent = '';
+        console.log("Login button clicked. Attempting Google Sign-in...");
         auth.signInWithPopup(googleProvider)
              .then((result) => {
-                console.log("Sign-in successful via popup:", result.user?.email);
-                // onAuthStateChanged will handle the rest
+                // Log success, but onAuthStateChanged handles the rest
+                console.log("Sign-in popup successful for:", result?.user?.email);
              })
             .catch((error) => {
-                console.error("Login failed:", error.code, error.message, error);
+                console.error("Google Sign-in failed:", error);
                 loginError.textContent = `Login failed: ${error.message}`;
                  if (error.code === 'auth/popup-closed-by-user') {
                      loginError.textContent = 'Login cancelled.';
                  } else if (error.code === 'auth/cancelled-popup-request') {
-                      // Ignore, likely second popup blocked
                       loginError.textContent = 'Login popup issue. Please try again.';
+                 } else if (error.code === 'auth/popup-blocked') {
+                      loginError.textContent = 'Login popup blocked by browser. Please allow popups for this site.';
                  }
-                authCheckMessage.textContent = ''; // Clear auth message on login failure
+                authCheckMessage.textContent = '';
             });
     });
 
-    logoutButton.addEventListener('click', async () => { // Make async
-        console.log("Attempting Sign-out...");
-        const uidToClean = currentUserId; // Capture UID before signout might nullify it
+    logoutButton.addEventListener('click', async () => {
+        console.log("Logout button clicked.");
+        // onAuthStateChanged handles presence removal and UI changes
         try {
             await auth.signOut();
-            console.log("Sign-out successful.");
-             // Presence removal is now handled in onAuthStateChanged when user becomes null
-             // await removePresence(uidToClean); // No longer strictly needed here, but doesn't hurt
+            console.log("Sign-out successful via button click.");
         } catch (error) {
             console.error("Error during sign out:", error);
+            // Optionally show error to user
+            showSaveStatus(`Logout error: ${error.message}`, true);
         }
     });
 
+    // --- UI Clearing ---
     function clearAdminUI() {
-         console.log("Clearing Admin UI...");
+         console.log("Clearing Admin UI state...");
         if (matchesList) matchesList.innerHTML = '';
         if (leaderboardBodyAdmin) leaderboardBodyAdmin.innerHTML = '';
         if (bracketEditor) bracketEditor.innerHTML = '';
@@ -631,20 +609,19 @@
          if (bracketSelect) bracketSelect.value = 'pro';
          if (onlineUsersContainer) onlineUsersContainer.innerHTML = ''; // Clear presence UI
 
-          // Clear intervals and listeners just in case they weren't cleared by removePresence
+          // Ensure intervals/listeners are cleared if not already handled by removePresence
           if (presenceUpdateInterval) clearInterval(presenceUpdateInterval);
           presenceUpdateInterval = null;
           if (onlineUsersListenerUnsubscribe) onlineUsersListenerUnsubscribe();
           onlineUsersListenerUnsubscribe = null;
-          authorizedAdminUIDs.clear();
-          currentUserId = null;
+          currentUserId = null; // Reset current user ID
 
           console.log("Admin UI Cleared.");
     }
 
     // --- Data Loading (Main Admin Sections) ---
     function loadAdminData() {
-         console.log("Loading main admin data sections...");
+         console.log("Loading main admin data sections (matches, leaderboard, bracket)...");
         loadMatchesAdmin();
         loadLeaderboardAdmin();
          if (bracketSelect) {
@@ -656,7 +633,7 @@
          }
     }
 
-    // --- Matches Load/Save/Delete (Keep Existing Logic) ---
+    // --- Matches Load/Save/Delete (No Changes from previous version) ---
     async function loadMatchesAdmin() { /* ... existing code ... */
         if (!matchesList) { console.error("loadMatchesAdmin: matchesList element not found"); return; }
         matchesList.innerHTML = '<div class="loading-indicator">Loading matches...</div>'; // Use class
@@ -870,7 +847,7 @@
          }
      });
 
-    // --- Leaderboard Load/Save/Delete (Keep Existing Logic) ---
+    // --- Leaderboard Load/Save/Delete (No Changes from previous version) ---
     async function loadLeaderboardAdmin() { /* ... existing code ... */
         if (!leaderboardBodyAdmin) { console.error("loadLeaderboardAdmin: leaderboardBodyAdmin element not found"); return; }
         leaderboardBodyAdmin.innerHTML = '<tr><td colspan="8" class="loading-indicator">Loading leaderboard...</td></tr>'; // Use class
@@ -1111,7 +1088,7 @@
         }
     });
 
-    // --- Bracket Load / Render / Save (Keep Existing Logic - including FIX) ---
+    // --- Bracket Load / Render / Save (No Changes from previous version) ---
     async function loadBracketAdmin(bracketType = 'pro') { /* ... existing code ... */
         if (!bracketEditor || !bracketLoadingIndicator) {
             console.error("loadBracketAdmin: necessary bracket elements not found");
@@ -1664,25 +1641,17 @@
     document.addEventListener('DOMContentLoaded', () => {
          console.log("DOM Content Loaded. Initializing UI elements if possible.");
          // Initial data load and presence setup is handled by onAuthStateChanged
-         // Attach static listeners that don't depend on dynamic content
-         // (e.g., login button, if it were always visible)
-         // Login button listener is already attached directly.
     });
 
     // Attempt to clean up presence on window close/refresh - BEST EFFORT ONLY
-    window.addEventListener('beforeunload', async (event) => {
-         // This is unreliable, especially on mobile or if the browser crashes.
-         // The timestamp mechanism is the primary way to handle stale presence.
+    window.addEventListener('beforeunload', (event) => { // Removed async, not reliable here
         if (currentUserId && auth.currentUser) {
             console.log("beforeunload triggered. Attempting quick presence removal (may not complete).");
-             // We cannot use async/await reliably here.
-             // Fire-and-forget deletion attempt.
-             db.collection(PRESENCE_COLLECTION).doc(currentUserId).delete()
-                 .then(() => console.log("Presence remove request sent on beforeunload."))
-                 .catch(err => console.warn("Error sending presence remove on beforeunload:", err));
-
-             // Standard requires returning nothing or a string for a confirmation dialog (which we don't want here)
-             // delete event.returnValue; // Not needed if we don't set it
+            // Fire-and-forget deletion attempt. DO NOT use await.
+            db.collection(PRESENCE_COLLECTION).doc(currentUserId).delete()
+                .then(() => console.log("Presence remove request sent on beforeunload."))
+                .catch(err => console.warn("Error sending presence remove on beforeunload:", err));
+            // No return value needed for modern browsers to avoid confirmation dialog
         }
     });
 

@@ -1,0 +1,304 @@
+--- START OF FILE profile.html ---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Profile - Poxel Clan Board</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #000000;
+            color: #ffffff;
+            margin: 0;
+            padding: 0;
+            padding-bottom: 80px; /* Space for potential footer */
+        }
+        .profile-container {
+            max-width: 1000px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #050513;
+            border-radius: 8px;
+            border: 1px solid #2a2aaf;
+        }
+
+        /* Banner */
+        .profile-banner {
+            height: 200px;
+            background-color: #333; /* Default BG */
+            background-size: cover;
+            background-position: center;
+            border-radius: 8px 8px 0 0;
+            position: relative;
+            margin-bottom: 60px; /* Space for profile picture overlap */
+            border-bottom: 2px solid #4e4e9e;
+        }
+        .profile-banner button {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            background-color: rgba(0,0,0,0.6);
+            color: white;
+            border: 1px solid white;
+            border-radius: 4px;
+        }
+         .profile-banner button:hover {
+            background-color: rgba(0,0,0,0.8);
+         }
+
+        /* Profile Picture */
+        .profile-picture-container {
+            position: absolute;
+            left: 30px;
+            bottom: -50px; /* Overlap banner */
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            border: 4px solid #050513; /* Match container BG */
+            background-color: #555; /* Default BG */
+            background-size: cover;
+            background-position: center;
+            overflow: hidden; /* Hide button parts outside circle */
+        }
+        .profile-picture-container button {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            padding: 5px;
+            background-color: rgba(0,0,0,0.6);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 0.8rem;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .profile-picture-container:hover button {
+            opacity: 1;
+        }
+        .profile-picture { /* The actual image element, if needed */
+             width: 100%;
+             height: 100%;
+             object-fit: cover;
+        }
+
+        /* Profile Info */
+        .profile-info {
+            padding: 0 20px;
+            margin-top: 10px; /* Space below profile pic */
+            position: relative; /* For positioning top right controls */
+        }
+        .profile-info h2 { /* Display Name */
+            margin-top: 0;
+            margin-bottom: 5px;
+            color: #ffffff;
+        }
+        .profile-info p { /* Email */
+            margin-top: 0;
+            color: #aaa;
+            font-size: 0.9rem;
+        }
+
+        /* Top Right Controls */
+        .profile-controls {
+            position: absolute;
+            top: 0;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        .profile-controls a, .profile-controls button {
+            padding: 8px 15px;
+            background-color: #4e4e9e;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 14px;
+            transition: background-color 0.3s ease;
+        }
+        .profile-controls a:hover, .profile-controls button:hover {
+            background-color: #5c5cb6;
+        }
+
+        /* Sections */
+        .profile-section {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #333;
+        }
+        .profile-section h3 {
+            margin-bottom: 15px;
+            color: #ddd;
+        }
+
+        /* Game Username Section */
+        .username-section label {
+            margin-right: 10px;
+        }
+        .username-section input {
+            padding: 8px 10px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            background-color: #111;
+            color: #fff;
+            margin-right: 10px;
+        }
+         .username-section input:focus {
+             outline: none;
+             border-color: #4e4e9e;
+         }
+        .username-section button {
+            padding: 8px 15px;
+            background-color: #4e4e9e;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        .username-section button:hover {
+            background-color: #5c5cb6;
+        }
+        .username-status {
+            font-size: 0.9em;
+            color: #aaa;
+            margin-left: 10px;
+        }
+
+        /* Game Stats Section */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+        .stat-item {
+            background-color: #121212;
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+            border: 1px solid #222;
+        }
+        .stat-item .label {
+            font-size: 0.9rem;
+            color: #aaa;
+            margin-bottom: 5px;
+            display: block;
+        }
+        .stat-item .value {
+            font-size: 1.4rem;
+            font-weight: bold;
+            color: #fff;
+        }
+        .loading, .error-message {
+            color: #aaa;
+            font-style: italic;
+        }
+        /* Hidden file input */
+        .hidden-file-input {
+            display: none;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="profile-container" id="profileContainer" style="display: none;"> <!-- Hide until loaded -->
+        <div class="profile-banner" id="profileBanner">
+            <!-- Banner Change Button -->
+            <button id="changeBannerBtn">Change Banner</button>
+            <input type="file" id="bannerUpload" class="hidden-file-input" accept="image/*">
+            <!-- Profile Picture Container (Positioned relative to banner) -->
+            <div class="profile-picture-container" id="profilePictureContainer">
+                 <img id="profilePicture" src="" alt="Profile Picture" class="profile-picture" style="display: none;" /> <!-- Placeholder for image -->
+                 <button id="changePictureBtn">Change</button>
+                 <input type="file" id="pictureUpload" class="hidden-file-input" accept="image/*">
+            </div>
+        </div>
+
+        <div class="profile-info">
+             <!-- Top Right Controls -->
+             <div class="profile-controls">
+                 <a href="index.html">Clan Board</a>
+                 <button id="logoutButton">Logout</button>
+             </div>
+
+            <h2 id="displayName">Loading...</h2>
+            <p id="userEmail">Loading...</p>
+        </div>
+
+        <!-- Game Username Section -->
+        <div class="profile-section username-section">
+            <h3>Link Game Username</h3>
+            <div>
+                <label for="gameUsernameInput">Poxel Username:</label>
+                <input type="text" id="gameUsernameInput" placeholder="Enter your in-game name">
+                <button id="saveUsernameBtn">Save</button>
+                <span id="usernameStatus" class="username-status"></span>
+            </div>
+        </div>
+
+        <!-- Game Stats Section -->
+        <div class="profile-section">
+            <h3>Game Stats</h3>
+            <div id="gameStatsGrid" class="stats-grid">
+                <p class="loading" id="statsLoading">Enter your game username above to see stats.</p>
+                <!-- Stats will be loaded here -->
+                 <!-- Example Stat Item Structure:
+                 <div class="stat-item">
+                     <span class="label">Kills</span>
+                     <span class="value">1234</span>
+                 </div>
+                 -->
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+    <!-- Cloudinary Upload Helper (Example using fetch) -->
+    <script>
+        // --- Cloudinary Config ---
+        const CLOUDINARY_CLOUD_NAME = "YOUR_CLOUD_NAME"; // <--- REPLACE
+        const CLOUDINARY_UPLOAD_PRESET = "YOUR_UNSIGNED_UPLOAD_PRESET"; // <--- REPLACE
+        const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
+
+        async function uploadToCloudinary(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+
+            try {
+                const response = await fetch(CLOUDINARY_URL, {
+                    method: 'POST',
+                    body: formData,
+                });
+                if (!response.ok) {
+                    throw new Error(`Cloudinary upload failed: ${response.statusText}`);
+                }
+                const data = await response.json();
+                console.log('Cloudinary upload success:', data);
+                return data.secure_url; // Return the secure URL of the uploaded image
+            } catch (error) {
+                console.error("Error uploading to Cloudinary:", error);
+                alert("Error uploading image: " + error.message); // User feedback
+                return null;
+            }
+        }
+    </script>
+
+    <script src="profile.js"></script> <!-- Link to the profile logic -->
+
+</body>
+</html>
+--- END OF FILE profile.html ---

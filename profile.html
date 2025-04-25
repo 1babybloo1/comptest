@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="https://res.cloudinary.com/djttn4xvk/image/upload/v1744016662/iv8s8dkwdzxgnubsnhla.ico">
+    <title>User Profile - Poxel Competitive</title>
+    <link rel="stylesheet" href="style.css"> <!-- Link the shared CSS -->
+</head>
+<body>
+    <!-- You might want a consistent header/nav here -->
+    <header>
+        <div class="logo">
+           <!-- Link back to home? -->
+           <a href="index.html" style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 1rem;">
+               <div class="logo-icon"></div>
+                <h1>Poxel Competitive</h1>
+           </a>
+        </div>
+         <div id="auth-container">
+             <!-- Profile picture/link will be shown here by auth.js (needed if user navigates directly here) -->
+             Loading...
+         </div>
+         <!-- Optional: Add simplified nav or just rely on logo link -->
+    </header>
+
+    <main>
+        <section id="profile-section">
+            <div id="profile-loading" class="loading-state">Loading profile...</div>
+
+            <div id="profile-content" style="display: none;"> <!-- Hide until loaded -->
+                 <!-- Banner -->
+                <div class="profile-header" id="profile-banner">
+                    <div class="profile-header-overlay"></div>
+                    <input type="file" id="banner-input" accept="image/*">
+                    <label for="banner-input" id="change-banner-btn" title="Change Banner">🖼️</label> <!-- Style as needed -->
+                </div>
+
+                <!-- Profile Picture -->
+                 <div class="profile-picture-container">
+                    <img id="profile-avatar-img" src="placeholder-avatar.png" alt="User Avatar"> <!-- Placeholder -->
+                    <input type="file" id="avatar-input" accept="image/*">
+                    <label for="avatar-input" id="change-avatar-btn" title="Change Avatar">📷</label>
+                </div>
+
+                <!-- User Info -->
+                <div class="profile-info">
+                    <h2 id="profile-username">Username</h2>
+                    <p id="profile-email">user@example.com</p>
+                </div>
+
+                 <!-- Stats Section -->
+                <div class="profile-stats card">
+                     <div class="stat-item">
+                        <span id="profile-matches" class="stat-value">0</span>
+                        <span class="stat-label">Matches</span>
+                     </div>
+                     <div class="stat-item">
+                         <span id="profile-wins" class="stat-value">0</span>
+                         <span class="stat-label">Wins</span>
+                     </div>
+                     <div class="stat-item">
+                         <span id="profile-losses" class="stat-value">0</span>
+                         <span class="stat-label">Losses</span>
+                     </div>
+                      <div class="stat-item">
+                         <span id="profile-points" class="stat-value">0</span>
+                         <span class="stat-label">Points</span>
+                     </div>
+                    <!-- Add more stats if needed -->
+                </div>
+
+                 <!-- Logout Button -->
+                <button id="logout-button">Logout</button>
+            </div>
+
+             <div id="profile-error" style="display: none; text-align: center; color: red; margin-top: 2rem;">
+                 Could not load profile data. You might need to log in. <a href="index.html">Go to Home</a>
+             </div>
+        </section>
+    </main>
+
+    <!-- Firebase SDKs (Need App, Auth, Firestore) -->
+     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+     <!-- Load Firebase Config FIRST -->
+     <script src="firebase-config.js"></script>
+
+     <!-- Profile Page Specific Logic -->
+     <script src="profile.js"></script>
+
+     <!-- Auth Logic (needed for header consistency & logout) -->
+      <script src="auth.js"></script> <!-- Also include auth.js here -->
+
+</body>
+</html>
